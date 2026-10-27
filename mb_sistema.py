@@ -500,15 +500,21 @@ def verificar_red(dominio, adaptadores_lista=None):
                 ("Controlador de dominio responde", "ok", "puerto 389 abierto"),
                 ("Hora sincronizada", "ok", "diferencia 1 s")], "10.110.2.10"
     lista = adaptadores_lista if adaptadores_lista is not None else adaptadores()
-    corp = [(a, ip) for a in lista if a["estado"] == "2" for ip in a["ips"] if not ip.startswith("169.254.")]
+    if not (dominio or "").strip():
+        return [("DNS resuelve el dominio", "err",
+                 "El dominio está VACÍO: abre Ajustes y escribe dominio.semarnat.gob.mx (falta config_mainbit.json)")], None
+    corp = [(a, ip) for a in lista if a["estado"] == "2" for ip in a["ips"]
+            if not ip.startswith("169.254.") and not ip.startswith("192.168.77.")]
     if corp:
         a, ip = corp[0]
         res.append(("Red corporativa (DHCP)", "ok", f"{ip} por {a['alias']}"))
     else:
         res.append(("Red corporativa (DHCP)", "err",
-                    "Solo hay IP 169.254.x.x o ninguna: conecta el cable a la red o el WiFi VIP_N"))
+                    "Sin IP corporativa (la 192.168.77.x/169.254.x.x es solo el cable directo): conecta el WiFi VIP_N y quita «Cable directo (IP fija)»"))
     try:
         dc_ip = socket.gethostbyname(dominio)
+        if dc_ip.startswith("0.") or dc_ip.startswith("127."):
+            raise OSError("respuesta inválida " + dc_ip)
         res.append(("DNS resuelve el dominio", "ok", f"{dominio} → {dc_ip}"))
     except OSError:
         res.append(("DNS resuelve el dominio", "err",

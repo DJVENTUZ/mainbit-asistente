@@ -1051,6 +1051,10 @@ class App:
         if not ok:
             messagebox.showerror("Nombre no válido", msg)
             return
+        if not self.cfg["dominio"].strip():
+            messagebox.showerror("Falta el dominio", "El dominio está vacío. Abre «Ajustes» y escribe "
+                                 "dominio.semarnat.gob.mx (o copia config_mainbit.json junto al programa).")
+            return
         if not self.v_serie.get().strip():
             messagebox.showerror("Falta la serie", "Escribe la serie del CPU para formar el nombre del equipo.")
             return
