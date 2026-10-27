@@ -396,7 +396,8 @@ class App:
 
         self.secc(p, "Unir al dominio")
         a = self.card(p)
-        self.L(a, "Dominio: " + self.cfg["dominio"], 9, True).pack(fill="x", pady=(0, S(4)))
+        self.lbl_dominio = self.L(a, "Dominio: " + (self.cfg["dominio"] or "(VACÍO: abre Ajustes)"), 9, True)
+        self.lbl_dominio.pack(fill="x", pady=(0, S(4)))
         g = tk.Frame(a, bg=C["card"])
         g.pack(fill="x")
         g.columnconfigure(1, weight=1)
@@ -1728,7 +1729,7 @@ class App:
         vs = {}
         for r, (k, t) in enumerate(campos):
             self.L(g, t, 9, color=C["label2"]).grid(row=r, column=0, sticky="w", pady=3, padx=(0, 10))
-            v = tk.StringVar(value=str(self.cfg[k]))
+            v = tk.StringVar(value=str(self.cfg.get(k, "")))
             vs[k] = v
             self.entrada(g, v, width=38).grid(row=r, column=1, pady=3, ipady=4)
         vimp = tk.BooleanVar(value=self.cfg["usar_impresora"])
@@ -1744,6 +1745,7 @@ class App:
             self.destino = self.cfg["destino_backup"]
             self.lbl_dest.config(text=self.destino)
             self._regenerar_base()
+            self.lbl_dominio.config(text="Dominio: " + (self.cfg["dominio"] or "(VACÍO: abre Ajustes)"))
             win.destroy()
         fr = tk.Frame(win, bg=C["card"])
         fr.pack(fill="x", padx=14, pady=(4, 12))

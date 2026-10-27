@@ -12,6 +12,7 @@ IS_WIN = os.name == "nt"
 DEFAULTS = {
     "unidad": "124",              # Unidad administrativa (parte 1 del hostname)
     "empresa": "M",               # Empresa Mainbit (parte 2)
+    "tipo_defecto": "D2 Y P03",
     "perfil": "",                 # D2 / L2; vacío = detectar por tipo de chasis
     "guion": False,               # False: 124MD243H47   True: 124-M-D2-43H47
     "dominio": "",
