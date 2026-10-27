@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+credenciales.ini
+RELACION_EQUIPOS.*
+config_mainbit.json
+Evidencias/

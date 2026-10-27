@@ -1,0 +1,8 @@
+MAINBIT ASISTENTE 3.0
+=====================
+Sin Python en tu PC: GitHub compila el .exe solo (carpeta .github/workflows).
+Ver los pasos de configuracion unica en el chat. Uso diario:
+ 1) Conecta "USB Blue" a tu PC con internet y haz doble clic en ACTUALIZAR_USB.bat.
+ 2) Lleva la USB a las PCs: USB Blue:\MainbitAsistente\MainbitAsistente.exe (como administrador).
+Datos que NO se pisan al actualizar (viven en la carpeta MainbitAsistente de la USB):
+ config_mainbit.json, RELACION_EQUIPOS.xlsx/.csv, credenciales.ini, Tipografias\, Evidencias\

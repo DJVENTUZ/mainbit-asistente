@@ -1,0 +1,1761 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""Mainbit Asistente 3.0 — migración de datos + configuración + relación de equipos.
+
+Un solo programa para las dos PCs. Funciona SIN internet y sin instalar nada en los clientes
+(se compila una vez a .exe con compilar_exe.bat).
+"""
+import ctypes
+import os
+import queue
+import socket
+import sys
+import threading
+import time
+import tkinter as tk
+from datetime import datetime
+from tkinter import filedialog, messagebox, ttk, font as tkfont
+
+import mb_motor as M
+import mb_sistema as SYS
+import mb_util as U
+import mb_widgets as W
+from mb_relacion import COLUMNAS, Relacion, escribir_evidencia, faltantes
+from mb_util import acortar, fmt_bytes, fmt_tiempo, ultimos5
+from mb_widgets import (C, COL, S, Capsula, Card, FilaEstado, RoundedButton, ScrollFrame,
+                        Segmentado, Switch)
+
+IP_DIRECTA_NUEVA = "192.168.77.2"
+IP_DIRECTA_VIEJA = "192.168.77.1"
+VELOCIDAD_ESTIMADA = 60 * 1024 * 1024      # B/s para el cálculo de tiempo (disco viejo + Gigabit)
+
+
+# ----------------------------------------------------------------------
+# Credenciales (nunca van dentro del programa; solo en un .ini opcional)
+# ----------------------------------------------------------------------
+def ruta_credenciales():
+    return os.path.join(U.dir_app(), "credenciales.ini")
+
+
+def leer_credenciales():
+    d = {}
+    try:
+        with open(ruta_credenciales(), "r", encoding="utf-8") as f:
+            for ln in f:
+                if "=" in ln and not ln.lstrip().startswith("#"):
+                    k, v = ln.rstrip("\r\n").split("=", 1)
+                    d[k.strip()] = v
+    except OSError:
+        pass
+    return d
+
+
+def guardar_credenciales(d):
+    try:
+        with open(ruta_credenciales(), "w", encoding="utf-8") as f:
+            f.write("# Mainbit Asistente: credenciales en TEXTO PLANO. Borra este archivo al terminar.\n")
+            for k, v in d.items():
+                f.write(f"{k}={v}\n")
+        return True
+    except OSError:
+        return False
+
+
+def borrar_credenciales():
+    try:
+        os.remove(ruta_credenciales())
+        return True
+    except OSError:
+        return False
+
+
+class App:
+    # ==================================================================
+    # Arranque
+    # ==================================================================
+    def __init__(self, root):
+        self.root = root
+        W.ESC = max(1.0, root.winfo_fpixels("1i") / 96.0)
+        root.title(f"{U.APP_NAME} v{U.VERSION}")
+        root.configure(bg=C["bg"])
+        fams = set(tkfont.families())
+        self.F = next((f for f in ("SF Pro Display", "SF Pro Text", "Segoe UI Variable Display",
+                                   "Segoe UI Variable Text", "Segoe UI", "Inter", "DejaVu Sans")
+                       if f in fams), "Helvetica")
+        self.cfg = U.cargar_config()
+        self.est_path = os.path.join(U.dir_datos(), "estado.json")
+        self.estado = U.leer_json(self.est_path, {}) or {}
+        self.relacion = Relacion(U.dir_escribible(U.dir_app()))
+        self.q = queue.Queue()
+        self.job = None
+        self.ocupado = False
+        self.tareas = set()
+        self.btns_accion = []
+        self.info = {}
+        self.adaptadores = []
+        self.dc_ip = None
+        self.res = {}                 # resultados de chequeos para la evidencia
+        self.rutas_extra = []
+        self.vars_unidad = {}         # letra -> BooleanVar
+        self.ip_fija_activa = False
+        self.fw_abierto = False
+        self._vel, self._t_last, self._b_last = 0.0, time.monotonic(), 0
+        self.idx_pendiente = None
+        self.vigilando_ivanti = False
+        self.destino = self.cfg["destino_backup"]
+        if not SYS.IS_WIN and not os.path.isdir(os.path.dirname(self.destino) or "."):
+            self.destino = os.path.join(os.path.expanduser("~"), "BACKUP_MIGRACION")
+        cred = leer_credenciales()
+
+        # variables de interfaz
+        sv = tk.StringVar
+        self.v_serie, self.v_monitor = sv(), sv()
+        self.v_serie_v, self.v_monitor_v = sv(), sv()
+        self.v_base = sv(value=self.cfg["base_hostname"])
+        self.v_guion = tk.BooleanVar(value=self.cfg["guion"])
+        self.v_user_dom = sv(value=cred.get("usuario", self.cfg["usuario_dominio"]))
+        self.v_pass_dom = sv(value=cred.get("clave", ""))
+        self.v_ssid = sv(value=cred.get("wifi_ssid", self.cfg["wifi_ssid"]))
+        self.v_pass_wifi = sv(value=cred.get("wifi_clave", ""))
+        self.v_recordar = tk.BooleanVar(value=bool(cred))
+        self.v_ip = sv()
+        self.v_users = tk.BooleanVar(value=True)
+        self.v_cache = tk.BooleanVar(value=self.cfg["excluir_cache"])
+        self.r_nombre, self.r_apellido = sv(), sv()
+        self.r_mon_a, self.r_cpu_a, self.r_tipo = sv(), sv(), sv(value=self.cfg.get("tipo_defecto", "D2 Y P03"))
+        for v in (self.v_serie, self.v_base):
+            v.trace_add("write", lambda *a: self.actualizar_hostname())
+        self.v_guion.trace_add("write", lambda *a: self._regenerar_base())
+
+        self._ventana()
+        self._construir()
+        U_modo = self._modo_inicial()
+        self.seg.seleccionar(U_modo)
+        self.cambiar_modo(U_modo)
+        self._titulo_oscuro()
+        root.attributes("-alpha", 0.95)
+        root.protocol("WM_DELETE_WINDOW", self.cerrar)
+        root.after(120, self.tick)
+        self.en_hilo("info", self._cargar_info)
+
+    def _ventana(self):
+        r = self.root
+        sw, sh = r.winfo_screenwidth(), r.winfo_screenheight()
+        w, h = min(S(1080), sw - S(30)), min(S(800), sh - S(80))
+        r.geometry(f"{w}x{h}+{max(0, (sw - w) // 2)}+{max(0, (sh - h) // 3)}")
+        r.minsize(min(S(820), w), min(S(560), h))
+
+    def _titulo_oscuro(self):
+        if not SYS.IS_WIN:
+            return
+        try:
+            self.root.update()
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            v = ctypes.c_int(1)
+            for attr in (20, 19):
+                if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), 4) == 0:
+                    break
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 35, ctypes.byref(ctypes.c_int(0)), 4)
+        except Exception:
+            pass
+
+    def _modo_inicial(self):
+        usuario = os.environ.get("USERNAME", os.environ.get("USER", "")).lower()
+        if usuario == self.cfg["usuario_local_nueva"].lower():
+            return 0
+        return 0 if not self.estado.get("modo") else int(self.estado.get("modo", 0))
+
+    # ==================================================================
+    # Helpers de interfaz
+    # ==================================================================
+    def f(self, size=9, bold=False):
+        return (self.F, size, "bold") if bold else (self.F, size)
+
+    def L(self, parent, texto, size=9, bold=False, color=None, bg=None, **kw):
+        return tk.Label(parent, text=texto, font=self.f(size, bold), bg=bg or C["card"],
+                        fg=color or C["label"], anchor="w", justify="left", **kw)
+
+    def secc(self, parent, texto):
+        tk.Label(parent, text=texto.upper(), font=self.f(8), bg=C["bg"], fg=C["label2"],
+                 anchor="w").pack(fill="x", padx=S(8), pady=(S(12), S(4)))
+
+    def card(self, parent, radius=18):
+        c = Card(parent, C["bg"], radius=radius, width=420)
+        c.pack(fill="x")
+        return c.inner
+
+    def entrada(self, parent, var, show=None, **kw):
+        return tk.Entry(parent, textvariable=var, font=self.f(10), bg=C["fill"], fg=C["label"],
+                        insertbackground=C["label"], relief="flat", bd=0, show=show or "",
+                        disabledbackground=C["fill"], disabledforeground=C["label2"],
+                        highlightthickness=1, highlightbackground=C["fill"], highlightcolor=C["blue"], **kw)
+
+    def boton(self, parent, texto, cmd, color=None, fg="#FFFFFF", h=36, w=100, accion=True, bold=True):
+        b = RoundedButton(parent, texto, cmd, color or C["fill"], fg, C["card"],
+                          self.f(9, bold), height=h, width=w)
+        if accion:
+            self.btns_accion.append(b)
+        return b
+
+    def campo(self, grid, fila, texto, var, show=None):
+        self.L(grid, texto, 9, color=C["label2"]).grid(row=fila, column=0, sticky="w", pady=S(3), padx=(0, S(10)))
+        e = self.entrada(grid, var, show=show)
+        e.grid(row=fila, column=1, sticky="ew", pady=S(3), ipady=S(5))
+        return e
+
+    def ui(self, fn, *args):
+        self.q.put((fn, args))
+
+    def log(self, texto, nivel=None):
+        self.ui(self._log, texto, nivel)
+
+    def estado_txt(self, texto, nivel=None):
+        self.ui(lambda: self.lbl_estado.config(text=texto, fg=COL.get(nivel, C["label2"])))
+
+    def preguntar(self, titulo, texto):
+        """Pregunta sí/no desde un hilo (bloquea ese hilo, no la interfaz)."""
+        ev, res = threading.Event(), []
+
+        def f():
+            res.append(messagebox.askyesno(titulo, texto))
+            ev.set()
+        self.ui(f)
+        ev.wait()
+        return res[0]
+
+    def en_hilo(self, clave, fn, *args):
+        if clave in self.tareas:
+            return
+        self.tareas.add(clave)
+
+        def run():
+            try:
+                fn(*args)
+            except Exception as e:
+                self.log(f"Error inesperado ({clave}): {e}", "err")
+            finally:
+                self.ui(self.tareas.discard, clave)
+        threading.Thread(target=run, daemon=True).start()
+
+    # ==================================================================
+    # Construcción
+    # ==================================================================
+    def _construir(self):
+        r = self.root
+        cab = tk.Frame(r, bg=C["bg"])
+        cab.pack(fill="x", padx=S(20), pady=(S(14), S(4)))
+        tk.Label(cab, text="Mainbit Asistente", font=self.f(22, True), bg=C["bg"], fg=C["label"]).pack(side="left")
+        tk.Label(cab, text="v" + U.VERSION, font=self.f(8, True), bg=C["fill"], fg=C["blue"],
+                 padx=S(8), pady=S(3)).pack(side="left", padx=S(10))
+        b_aj = RoundedButton(cab, "Ajustes", self.abrir_ajustes, C["fill"], C["blue"], C["bg"],
+                             self.f(9, True), height=34, width=76)
+        b_aj.pack(side="right", padx=(S(8), 0))
+        self.seg = Segmentado(cab, ["PC NUEVA", "PC VIEJA", "RELACIÓN"], self.cambiar_modo, C["bg"],
+                              self.f(9, True), width=330, height=34)
+        self.seg.pack(side="right")
+
+        # banner "siguiente paso"
+        cb = Card(r, C["bg"], radius=14, pad=12, width=900)
+        cb.pack(fill="x", padx=S(20), pady=(S(6), S(2)))
+        self.lbl_banner = tk.Label(cb.inner, text="", font=self.f(10, True), bg=C["card"], fg=C["blue"],
+                                   anchor="w", justify="left", wraplength=S(980))
+        self.lbl_banner.pack(fill="x")
+
+        # cuerpo
+        self.cuerpo = tk.Frame(r, bg=C["bg"])
+        self.cuerpo.pack(fill="both", expand=True, padx=S(12), pady=(S(4), 0))
+        self.cuerpo.columnconfigure(0, weight=1)
+        self.cuerpo.rowconfigure(0, weight=1)
+        self.fr_trabajo = tk.Frame(self.cuerpo, bg=C["bg"])
+        self.fr_trabajo.grid(row=0, column=0, sticky="nsew")
+        self.fr_trabajo.columnconfigure((0, 1), weight=1, uniform="col")
+        self.fr_trabajo.rowconfigure(0, weight=1)
+        self.sf_izq = ScrollFrame(self.fr_trabajo, C["bg"])
+        self.sf_izq.grid(row=0, column=0, sticky="nsew", padx=(0, S(6)))
+        self.sf_der = ScrollFrame(self.fr_trabajo, C["bg"])
+        self.sf_der.grid(row=0, column=1, sticky="nsew", padx=(S(6), 0))
+
+        self.pag_nueva = tk.Frame(self.sf_izq.inner, bg=C["bg"])
+        self.pag_vieja = tk.Frame(self.sf_izq.inner, bg=C["bg"])
+        self._pag_nueva()
+        self._pag_vieja()
+        self._actividad(self.sf_der.inner)
+        self.pag_rel = tk.Frame(self.cuerpo, bg=C["bg"])
+        self.pag_rel.grid(row=0, column=0, sticky="nsew")
+        self.pag_rel.grid_remove()
+        self._pag_relacion(self.pag_rel)
+
+        pie = tk.Frame(r, bg=C["bg"])
+        pie.pack(fill="x", padx=S(20), pady=(S(4), S(8)))
+        tk.Label(pie, text="Desarrollado para Mainbit por Gabriel Hernández Arroyo", font=self.f(8),
+                 bg=C["bg"], fg=C["label3"]).pack(side="left")
+        esc = tk.Scale(pie, from_=60, to=100, orient="horizontal", showvalue=0, length=S(110),
+                       command=lambda v: r.attributes("-alpha", int(float(v)) / 100),
+                       bg=C["bg"], troughcolor=C["fill"], highlightthickness=0, bd=0, sliderrelief="flat",
+                       activebackground=C["blue"], width=S(9))
+        esc.set(95)
+        esc.pack(side="right")
+        tk.Label(pie, text="Transparencia", font=self.f(8), bg=C["bg"], fg=C["label2"]).pack(side="right", padx=S(6))
+
+    # ------------------------------------------------------------ PC NUEVA
+    def _pag_nueva(self):
+        p = self.pag_nueva
+        self.subseg = Segmentado(p, ["1 · Recibir", "2 · Dominio", "3 · Final"], self.cambiar_sub, C["bg"],
+                                 self.f(9, True), width=400, height=34)
+        self.subseg.pack(fill="x", pady=(S(4), 0))
+        self.sub_frames = [tk.Frame(p, bg=C["bg"]) for _ in range(3)]
+        self._nueva1(self.sub_frames[0])
+        self._nueva2(self.sub_frames[1])
+        self._nueva3(self.sub_frames[2])
+
+    def _equipo_card(self, p, serie_var, mon_var, titulo):
+        self.secc(p, titulo)
+        a = self.card(p)
+        g = tk.Frame(a, bg=C["card"])
+        g.pack(fill="x")
+        g.columnconfigure(1, weight=1)
+        self.campo(g, 0, "Serie CPU", serie_var)
+        self.campo(g, 1, "Serie monitor", mon_var)
+        lm = self.L(g, "", 9, color=C["label2"], wraplength=S(260))
+        self.L(g, "Equipo", 9, color=C["label2"]).grid(row=2, column=0, sticky="w", pady=S(3))
+        lm.grid(row=2, column=1, sticky="w", pady=S(3))
+        la = self.L(g, "", 9)
+        self.L(g, "Administrador", 9, color=C["label2"]).grid(row=3, column=0, sticky="w", pady=S(3))
+        la.grid(row=3, column=1, sticky="w", pady=S(3))
+        f2 = tk.Frame(a, bg=C["card"])
+        f2.pack(fill="x", pady=(S(6), 0))
+        self.boton(f2, "Releer equipo", lambda: self.en_hilo("info", self._cargar_info), h=30, w=110,
+                   accion=False, bold=False).pack(side="left")
+        return lm, la
+
+    def _nueva1(self, p):
+        self.lm_n, self.la_n = self._equipo_card(p, self.v_serie, self.v_monitor, "Este equipo (PC nueva)")
+        self.secc(p, "Recibir datos de la PC vieja")
+        a = self.card(p)
+        self.L(a, "Conecta el cable de red entre las dos PCs. IP de este equipo:", 9, color=C["label2"],
+               wraplength=S(400)).pack(fill="x")
+        self.fr_ips = tk.Frame(a, bg=C["card"])
+        self.fr_ips.pack(fill="x", pady=(S(4), S(6)))
+        self.L(a, "Carpeta de destino", 9, color=C["label2"]).pack(fill="x")
+        fila = tk.Frame(a, bg=C["card"])
+        fila.pack(fill="x", pady=(S(2), S(8)))
+        self.lbl_dest = self.L(fila, self.destino, 9, wraplength=S(260))
+        self.lbl_dest.pack(side="left", fill="x", expand=True)
+        self.boton(fila, "Cambiar", self.cambiar_destino, h=30, w=80, bold=False).pack(side="right")
+        self.btn_receptor = self.boton(a, "Activar receptor", self.iniciar_receptor, C["blue"], h=44)
+        self.btn_receptor.pack(fill="x")
+        f2 = tk.Frame(a, bg=C["card"])
+        f2.pack(fill="x", pady=(S(8), 0))
+        self.btn_ipfija_n = self.boton(f2, "Cable directo (IP fija)", lambda: self.toggle_ip_fija(IP_DIRECTA_NUEVA),
+                                       h=30, w=170, accion=False, bold=False)
+        self.btn_ipfija_n.pack(side="left")
+        self.L(a, "Úsalo solo si «Auto-buscar» no encuentra la PC (por ejemplo si la PC vieja tiene IP fija). "
+                  "Hay que activarlo en las DOS PCs; se restaura solo al terminar.",
+               8, color=C["label2"], wraplength=S(400)).pack(fill="x", pady=(S(4), 0))
+        self.secc(p, "PC vieja detectada")
+        a = self.card(p)
+        self.lbl_vieja = self.L(a, "Aún no se conecta la PC vieja.", 9, color=C["label2"], wraplength=S(400))
+        self.lbl_vieja.pack(fill="x")
+
+    def _nueva2(self, p):
+        self.secc(p, "Nombre del equipo")
+        a = self.card(p)
+        g = tk.Frame(a, bg=C["card"])
+        g.pack(fill="x")
+        g.columnconfigure(1, weight=1)
+        self.campo(g, 0, "Base", self.v_base)
+        self.lbl_host = self.L(a, "", 18, True, color=C["blue"])
+        self.lbl_host.pack(fill="x", pady=(S(6), 0))
+        self.lbl_host_ok = self.L(a, "", 8, color=C["label2"], wraplength=S(400))
+        self.lbl_host_ok.pack(fill="x")
+        Switch(a, "Separar con guion medio", self.v_guion, C["card"], self.f(9),
+               detalle="124MD243H47 (como tu Tabla 2)  ↔  124-M-D2-43H47 (como el manual)",
+               wrap=330).pack(fill="x", pady=(S(8), 0))
+
+        self.secc(p, "Red corporativa")
+        a = self.card(p)
+        g = tk.Frame(a, bg=C["card"])
+        g.pack(fill="x")
+        g.columnconfigure(1, weight=1)
+        self.campo(g, 0, "WiFi (SSID)", self.v_ssid)
+        self.campo(g, 1, "Clave WiFi", self.v_pass_wifi, show="•")
+        f1 = tk.Frame(a, bg=C["card"])
+        f1.pack(fill="x", pady=(S(6), S(4)))
+        f1.columnconfigure((0, 1), weight=1, uniform="r")
+        self.boton(f1, "Conectar WiFi", self.conectar_wifi, h=34).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.boton(f1, "Verificar red", self.verificar_red, h=34).grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        self.L(a, "Con el WiFi puedes dejar el cable conectado a la PC vieja y unir al dominio al mismo tiempo.",
+               8, color=C["label2"], wraplength=S(400)).pack(fill="x", pady=(0, S(6)))
+        self.f_red = FilaEstado(a, "Red corporativa (DHCP)", C["card"], self.f(9), wrap=300)
+        self.f_dns = FilaEstado(a, "DNS resuelve el dominio", C["card"], self.f(9), wrap=300)
+        self.f_dc = FilaEstado(a, "Controlador de dominio responde", C["card"], self.f(9), wrap=300)
+        self.f_hora = FilaEstado(a, "Hora sincronizada", C["card"], self.f(9), "Sincronizar", self.sincronizar_hora,
+                                 wrap=250)
+        for fr in (self.f_red, self.f_dns, self.f_dc, self.f_hora):
+            fr.pack(fill="x", pady=S(3))
+
+        self.secc(p, "Unir al dominio")
+        a = self.card(p)
+        self.L(a, "Dominio: " + self.cfg["dominio"], 9, True).pack(fill="x", pady=(0, S(4)))
+        g = tk.Frame(a, bg=C["card"])
+        g.pack(fill="x")
+        g.columnconfigure(1, weight=1)
+        self.campo(g, 0, "Usuario", self.v_user_dom)
+        self.campo(g, 1, "Contraseña", self.v_pass_dom, show="•")
+        Switch(a, "Recordar usuario y claves en esta USB", self.v_recordar, C["card"], self.f(9),
+               detalle="Se guardan en credenciales.ini (texto plano). Bórralo al terminar el proyecto.",
+               wrap=330).pack(fill="x", pady=(S(8), S(6)))
+        f2 = tk.Frame(a, bg=C["card"])
+        f2.pack(fill="x")
+        f2.columnconfigure((0, 1), weight=1, uniform="d")
+        self.boton(f2, "Solo renombrar", self.solo_renombrar, h=38).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.btn_unir = self.boton(f2, "Unir al dominio", self.unir_dominio, C["blue"], h=38)
+        self.btn_unir.grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        self.boton(a, "Abrir Propiedades del sistema (sysdm.cpl)", SYS.abrir_sysdm, h=30, accion=False,
+                   bold=False).pack(fill="x", pady=(S(8), 0))
+
+    def _nueva3(self, p):
+        self.secc(p, "Lista final (con el usuario ya en el dominio)")
+        a = self.card(p)
+        self.f_fin = {}
+        filas = [("dominio", "Equipo en el dominio", "Revisar", self.chk_dominio),
+                 ("ivanti", "Agente IVANTI instalado", "Revisar", lambda: self.en_hilo("ivanti", self.chk_ivanti)),
+                 ("politicas", "Políticas aplicadas", "Aplicar", lambda: self.en_hilo("gpo", self.chk_politicas)),
+                 ("fuentes", "Tipografías (72 Noto Sans + 3 Patria)", "Instalar", self.accion_fuentes),
+                 ("impresora", "Impresora de red", "Conectar", lambda: self.en_hilo("impresora", self.chk_impresora)),
+                 ("datos", "Datos restaurados al perfil (opcional)", "Restaurar", self.abrir_restaurar)]
+        for clave, texto, boton, cmd in filas:
+            fr = FilaEstado(a, texto, C["card"], self.f(9), boton, cmd, wrap=250)
+            fr.pack(fill="x", pady=S(4))
+            self.f_fin[clave] = fr
+        f2 = tk.Frame(a, bg=C["card"])
+        f2.pack(fill="x", pady=(S(8), 0))
+        f2.columnconfigure((0, 1), weight=1, uniform="f")
+        self.boton(f2, "Ejecutar todo", self.ejecutar_todo, C["blue"], h=40).grid(row=0, column=0, sticky="ew", padx=(0, 4))
+        self.boton(f2, "Generar evidencia", lambda: self.en_hilo("evidencia", self.generar_evidencia),
+                   C["green"], h=40).grid(row=0, column=1, sticky="ew", padx=(4, 0))
+
+        self.secc(p, "Registro en la relación de equipos")
+        a = self.card(p)
+        g = tk.Frame(a, bg=C["card"])
+        g.pack(fill="x")
+        g.columnconfigure(1, weight=1)
+        self.campo(g, 0, "Nombre(s)", self.r_nombre)
+        self.campo(g, 1, "Apellido(s)", self.r_apellido)
+        self.campo(g, 2, "Serie monitor antiguo", self.r_mon_a)
+        self.campo(g, 3, "Serie CPU antiguo", self.r_cpu_a)
+        self.campo(g, 4, "Tipo", self.r_tipo)
+        f2 = tk.Frame(a, bg=C["card"])
+        f2.pack(fill="x", pady=(S(8), 0))
+        f2.columnconfigure((0, 1), weight=1, uniform="g")
+        self.boton(f2, "Elegir de pendientes", self.elegir_pendiente, h=36, bold=False).grid(
+            row=0, column=0, sticky="ew", padx=(0, 4))
+        self.boton(f2, "Guardar en la relación", self.guardar_relacion, C["green"], h=36).grid(
+            row=0, column=1, sticky="ew", padx=(4, 0))
+        self.lbl_faltan = self.L(a, "", 8, color=C["label2"], wraplength=S(400))
+        self.lbl_faltan.pack(fill="x", pady=(S(6), 0))
+
+    # ------------------------------------------------------------ PC VIEJA
+    def _pag_vieja(self):
+        p = self.pag_vieja
+        self.lm_v, self.la_v = self._equipo_card(p, self.v_serie_v, self.v_monitor_v, "Este equipo (PC vieja)")
+        self.secc(p, "Qué respaldar")
+        a = self.card(p)
+        self.fr_unidades = tk.Frame(a, bg=C["card"])
+        self.fr_unidades.pack(fill="x")
+        Switch(a, "Carpeta C:\\Users (todos los perfiles)", self.v_users, C["card"], self.f(9),
+               detalle="Como administrador se leen también los perfiles de otros usuarios.",
+               wrap=330).pack(fill="x", pady=S(4))
+        Switch(a, "Omitir cachés y temporales", self.v_cache, C["card"], self.f(9),
+               detalle="Quita AppData\\Local, cachés y .tmp (rápido). Conserva marcadores de Chrome/Edge, "
+                       "firmas de Outlook y todo lo demás.", wrap=330).pack(fill="x", pady=S(4))
+        self.lbl_avisos = self.L(a, "", 8, color=C["yellow"], wraplength=S(400))
+        self.lbl_avisos.pack(fill="x", pady=(S(4), 0))
+        self.L(a, "Extras (opcional)", 9, color=C["label2"]).pack(fill="x", pady=(S(8), S(2)))
+        f2 = tk.Frame(a, bg=C["card"])
+        f2.pack(fill="x")
+        f2.columnconfigure((0, 1, 2), weight=1, uniform="x")
+        for i, (t, cmd, col) in enumerate((("+ Carpeta", self.add_carpeta, C["blue"]),
+                                            ("+ Archivos", self.add_archivos, C["blue"]),
+                                            ("Quitar", self.quitar_extra, C["red"]))):
+            self.boton(f2, t, cmd, C["fill"], col, h=32).grid(row=0, column=i, sticky="ew", padx=2)
+        marco = tk.Frame(a, bg=C["fill"])
+        marco.pack(fill="x", pady=(S(6), 0))
+        self.lb_extra = tk.Listbox(marco, height=3, bg=C["fill"], fg=C["label"], font=self.f(9),
+                                   selectbackground=C["blue"], relief="flat", highlightthickness=0, bd=0,
+                                   activestyle="none", selectmode="extended")
+        self.lb_extra.pack(fill="x", padx=S(8), pady=S(6))
+
+        self.secc(p, "Enviar a la PC nueva")
+        a = self.card(p)
+        self.L(a, "IP de la PC nueva (la muestra el receptor)", 9, color=C["label2"]).pack(fill="x", pady=(0, S(3)))
+        fila = tk.Frame(a, bg=C["card"])
+        fila.pack(fill="x")
+        self.entry_ip = self.entrada(fila, self.v_ip)
+        self.entry_ip.pack(side="left", fill="x", expand=True, ipady=S(6), padx=(0, S(8)))
+        self.btn_buscar = self.boton(fila, "Auto-buscar", self.buscar, C["gray"], h=34, w=100)
+        self.btn_buscar.pack(side="right")
+        self.btn_ipfija_v = self.boton(a, "Cable directo (IP fija)", lambda: self.toggle_ip_fija(IP_DIRECTA_VIEJA),
+                                       h=30, accion=False, bold=False)
+        self.btn_ipfija_v.pack(fill="x", pady=(S(8), 0))
+        f2 = tk.Frame(a, bg=C["card"])
+        f2.pack(fill="x", pady=(S(8), 0))
+        f2.columnconfigure(0, weight=1, uniform="e")
+        f2.columnconfigure(1, weight=2, uniform="e")
+        self.boton(f2, "Analizar", lambda: self.accion_emisor(True), C["gray"], h=42).grid(
+            row=0, column=0, sticky="ew", padx=(0, 4))
+        self.boton(f2, "Enviar", lambda: self.accion_emisor(False), C["green"], h=42).grid(
+            row=0, column=1, sticky="ew", padx=(4, 0))
+
+    # ------------------------------------------------------------ Actividad
+    def _actividad(self, p):
+        self.secc(p, "Actividad")
+        a = self.card(p)
+        fila = tk.Frame(a, bg=C["card"])
+        fila.pack(fill="x")
+        self.lbl_pct = self.L(fila, "0%", 28, True, width=5)
+        self.lbl_pct.pack(side="left")
+        self.lbl_estado = self.L(fila, "Listo.", 10, color=C["label2"], wraplength=S(250))
+        self.lbl_estado.pack(side="left", fill="x", expand=True)
+        self.progress = Capsula(a, C["card"])
+        self.progress.pack(fill="x", pady=(S(6), S(8)))
+        st = tk.Frame(a, bg=C["card"])
+        st.pack(fill="x")
+        st.columnconfigure((0, 1), weight=1, uniform="s")
+        self.vals = {}
+        for i, (k, cap) in enumerate((("arch", "ARCHIVOS"), ("datos", "DATOS"), ("vel", "VELOCIDAD"),
+                                      ("rest", "TIEMPO RESTANTE"))):
+            r, c = (i // 2) * 2, i % 2
+            self.L(st, cap, 7, color=C["label2"]).grid(row=r, column=c, sticky="w")
+            lb = self.L(st, "—", 10, True)
+            lb.grid(row=r + 1, column=c, sticky="w", pady=(0, S(4)))
+            self.vals[k] = lb
+        self.lbl_actual = self.L(a, "", 8, color=C["label2"], wraplength=S(400))
+        self.lbl_actual.pack(fill="x", pady=(S(2), S(6)))
+        self.txt = tk.Text(a, height=14, bg=C["fill"], fg=C["label"], font=self.f(8), relief="flat",
+                           highlightthickness=0, bd=0, wrap="word", state="disabled", padx=S(8), pady=S(6))
+        for k, v in COL.items():
+            self.txt.tag_config(str(k), foreground=v)
+        self.txt.pack(fill="x")
+        self.btn_cancel = RoundedButton(a, "Cancelar", self.cancelar, C["fill"], C["red"], C["card"],
+                                        self.f(10, True), height=38)
+        self.btn_cancel.pack(fill="x", pady=(S(10), 0))
+        self.btn_cancel.set_enabled(False)
+
+    # ------------------------------------------------------------ RELACIÓN
+    def _pag_relacion(self, p):
+        st = ttk.Style()
+        try:
+            st.theme_use("clam")
+        except tk.TclError:
+            pass
+        st.configure("Mb.Treeview", background=C["card"], fieldbackground=C["card"], foreground=C["label"],
+                     rowheight=S(28), borderwidth=0, font=self.f(9))
+        st.configure("Mb.Treeview.Heading", background=C["fill"], foreground=C["label"], relief="flat",
+                     font=self.f(9, True), padding=S(6))
+        st.map("Mb.Treeview", background=[("selected", C["blue"])], foreground=[("selected", "#FFFFFF")])
+        st.configure("Mb.Vertical.TScrollbar", background=C["gray"], troughcolor=C["card"],
+                     bordercolor=C["card"], arrowcolor=C["label2"], relief="flat")
+        st.configure("Mb.Horizontal.TScrollbar", background=C["gray"], troughcolor=C["card"],
+                     bordercolor=C["card"], arrowcolor=C["label2"], relief="flat")
+        top = tk.Frame(p, bg=C["bg"])
+        top.pack(fill="x", pady=(S(8), S(6)), padx=S(8))
+        self.lbl_rel_res = tk.Label(top, text="", font=self.f(10, True), bg=C["bg"], fg=C["label"], anchor="w")
+        self.lbl_rel_res.pack(side="left")
+        for texto, cmd, col in (("Abrir carpeta", self.abrir_carpeta_relacion, C["blue"]),
+                                ("Pegar usuarios pendientes", self.pegar_pendientes, C["blue"]),
+                                ("Editar fila", self.editar_fila, C["blue"])):
+            b = RoundedButton(top, texto, cmd, C["fill"], col, C["bg"], self.f(9, True), height=34,
+                              width=170 if len(texto) > 14 else 120)
+            b.pack(side="right", padx=(S(6), 0))
+        marco = tk.Frame(p, bg=C["card"])
+        marco.pack(fill="both", expand=True, padx=S(8), pady=(0, S(6)))
+        marco.rowconfigure(0, weight=1)
+        marco.columnconfigure(0, weight=1)
+        self.tree = ttk.Treeview(marco, columns=COLUMNAS, show="headings", style="Mb.Treeview", selectmode="browse")
+        anchos = [150, 150, 110, 120, 125, 110, 80, 120, 120, 90, 300]
+        for c, w in zip(COLUMNAS, anchos):
+            self.tree.heading(c, text=c)
+            self.tree.column(c, width=S(w), minwidth=S(60), stretch=False)
+        vs = ttk.Scrollbar(marco, orient="vertical", command=self.tree.yview, style="Mb.Vertical.TScrollbar")
+        hs = ttk.Scrollbar(marco, orient="horizontal", command=self.tree.xview, style="Mb.Horizontal.TScrollbar")
+        self.tree.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)
+        self.tree.grid(row=0, column=0, sticky="nsew")
+        vs.grid(row=0, column=1, sticky="ns")
+        hs.grid(row=1, column=0, sticky="ew")
+        self.tree.tag_configure("Hecho", foreground=C["green"])
+        self.tree.tag_configure("Incompleto", foreground=C["yellow"])
+        self.tree.tag_configure("Pendiente", foreground=C["label2"])
+        self.tree.bind("<Double-1>", lambda e: self.editar_fila())
+        self.lbl_rel_ruta = tk.Label(p, text="", font=self.f(8), bg=C["bg"], fg=C["label2"], anchor="w")
+        self.lbl_rel_ruta.pack(fill="x", padx=S(10), pady=(0, S(4)))
+
+    # ==================================================================
+    # Modos y páginas
+    # ==================================================================
+    def cambiar_modo(self, i):
+        self.modo = i
+        self.estado["modo"] = i
+        self.pag_nueva.pack_forget()
+        self.pag_vieja.pack_forget()
+        if i == 2:
+            self.fr_trabajo.grid_remove()
+            self.pag_rel.grid()
+            self.refrescar_relacion()
+        else:
+            self.pag_rel.grid_remove()
+            self.fr_trabajo.grid()
+            (self.pag_nueva if i == 0 else self.pag_vieja).pack(fill="x")
+            if i == 0:
+                self.cambiar_sub(getattr(self, "sub", self._sub_sugerida()))
+            else:
+                self.refrescar_unidades()
+        self.sf_izq.arriba()
+        self.actualizar_banner()
+
+    def _sub_sugerida(self):
+        if self.estado.get("unido") or self.info.get("unido"):
+            return 2
+        if self.estado.get("recibido"):
+            return 1
+        return 0
+
+    def cambiar_sub(self, i):
+        self.sub = i
+        self.subseg.seleccionar(i)
+        for fr in self.sub_frames:
+            fr.pack_forget()
+        self.sub_frames[i].pack(fill="x")
+        self.sf_izq.arriba()
+        if i == 1:
+            self.actualizar_hostname()
+        if i == 2:
+            self.rellenar_registro()
+            self.actualizar_faltantes()
+
+    def set_ocupado(self, v):
+        self.ocupado = v
+        self.seg.activo = not v
+        self.seg._dibujar()
+        self.subseg.activo = not v
+        self.subseg._dibujar()
+        for b in self.btns_accion:
+            b.set_enabled(not v)
+        self.btn_cancel.set_enabled(v)
+        SYS.evitar_suspension(v)
+
+    # ==================================================================
+    # Cola UI
+    # ==================================================================
+    def tick(self):
+        try:
+            for _ in range(300):
+                try:
+                    fn, args = self.q.get_nowait()
+                except queue.Empty:
+                    break
+                try:
+                    fn(*args)
+                except Exception as e:
+                    print("ui:", e)
+            self.refrescar()
+        finally:
+            self.root.after(150, self.tick)
+
+    def _log(self, texto, nivel):
+        self.txt.config(state="normal")
+        self.txt.insert(tk.END, f"{datetime.now():%H:%M:%S}  {texto}\n", str(nivel))
+        if int(self.txt.index("end-1c").split(".")[0]) > 700:
+            self.txt.delete("1.0", "200.0")
+        self.txt.see(tk.END)
+        self.txt.config(state="disabled")
+
+    def refrescar(self):
+        if not self.job:
+            return
+        p = self.job.prog
+        now = time.monotonic()
+        if p.fase == "analizando":
+            self.lbl_pct.config(text="…")
+            self.progress.set(0)
+            self.vals["arch"].config(text=f"{p.files_total:,}")
+            self.vals["datos"].config(text=fmt_bytes(p.bytes_total))
+            self.vals["vel"].config(text="—")
+            self.vals["rest"].config(text="—")
+            self.lbl_actual.config(text="Analizando carpetas…")
+        elif p.fase in ("transfiriendo", "fin"):
+            if p.completo:
+                pct = 100
+            elif p.bytes_total > 0:
+                pct = min(99, int(min(p.bytes_done, p.bytes_total) * 100 / p.bytes_total))
+            else:
+                pct = 0
+            rest = None
+            if p.fase == "transfiriendo":
+                dt = now - self._t_last
+                if dt >= 0.5:
+                    inst = (p.bytes_done - self._b_last) / dt
+                    self._vel = inst if self._vel == 0 else 0.7 * self._vel + 0.3 * inst
+                    self._t_last, self._b_last = now, p.bytes_done
+                if self._vel > 1:
+                    rest = (p.bytes_total - p.bytes_done) / self._vel
+                self.vals["vel"].config(text=f"{fmt_bytes(self._vel)}/s")
+                self.lbl_actual.config(text=acortar(p.actual, 70))
+            else:
+                self.vals["vel"].config(text="—")
+                self.lbl_actual.config(text="")
+            self.lbl_pct.config(text=f"{pct}%")
+            self.progress.set(pct)
+            extra = f"  (+{p.files_ya:,} ya estaban)" if p.files_ya else ""
+            self.vals["arch"].config(text=f"{p.files_done:,} / {p.files_total:,}{extra}")
+            self.vals["datos"].config(text=f"{fmt_bytes(p.bytes_done)} / {fmt_bytes(p.bytes_total)}")
+            self.vals["rest"].config(text=fmt_tiempo(rest) if p.fase == "transfiriendo" else "—")
+        elif p.fase == "esperando":
+            self.lbl_pct.config(text="⏳")
+            self.vals["vel"].config(text="—")
+
+    def nuevo_job(self):
+        self.job = M.Job(self.log)
+        self._vel, self._t_last, self._b_last = 0.0, time.monotonic(), 0
+        self.txt.config(state="normal")
+        self.txt.delete("1.0", tk.END)
+        self.txt.config(state="disabled")
+        self.lbl_pct.config(text="0%")
+        self.progress.set(0)
+        self.lbl_actual.config(text="")
+        for k in self.vals:
+            self.vals[k].config(text="—")
+        self.set_ocupado(True)
+        self.sf_der.arriba()
+
+    def cancelar(self):
+        if self.job and self.ocupado:
+            self.log("Cancelando…", "warn")
+            self.job.abortar()
+
+    def cerrar(self):
+        if self.ocupado:
+            if not messagebox.askyesno("Cerrar", "Hay una operación en curso. ¿Cancelarla y salir?"):
+                return
+            self.job.abortar()
+        if SYS.ip_fija_pendiente():
+            SYS.ip_fija_restaurar()
+        if self.fw_abierto:
+            SYS.cerrar_firewall()
+        SYS.evitar_suspension(False)
+        U.escribir_json(self.est_path, self.estado)
+        self.root.destroy()
+
+    def guardar_estado(self):
+        try:
+            U.escribir_json(self.est_path, self.estado)
+        except OSError:
+            pass
+
+    # ==================================================================
+    # Información del equipo
+    # ==================================================================
+    def _cargar_info(self):
+        info = SYS.info_pc()
+        adap = SYS.adaptadores()
+        self.ui(self.aplicar_info, info, adap)
+
+    def aplicar_info(self, info, adap):
+        self.info, self.adaptadores = info, adap
+        serie, mon = info.get("serie", ""), SYS.series_monitores(info)
+        for v, val in ((self.v_serie, serie), (self.v_serie_v, serie)):
+            v.set(val)
+        for v, val in ((self.v_monitor, mon), (self.v_monitor_v, mon)):
+            v.set(val)
+        modelo = " ".join(x for x in (info.get("fabricante", ""), info.get("modelo", "")) if x) or "—"
+        extra = f" · {info.get('perfil', '')}" if info.get("perfil") else ""
+        for lm in (self.lm_n, self.lm_v):
+            lm.config(text=modelo + extra + (f"\nSerie obtenida de: {info.get('serie_fuente', '')}"
+                                             if info.get("serie") else "\nSerie NO detectada: escríbela"))
+        adm = "Sí" if info.get("admin") else "NO — abre el programa como administrador"
+        for la in (self.la_n, self.la_v):
+            la.config(text=adm, fg=C["green"] if info.get("admin") else C["red"])
+        if not self.v_base.get():
+            self.v_base.set(self._base_default())
+        self.mostrar_ips()
+        if not self.r_tipo.get() or self.r_tipo.get() == "D2 Y P03":
+            self.r_tipo.set("L2" if info.get("perfil") == "L2" else self.cfg.get("tipo_defecto", "D2 Y P03"))
+        if info.get("unido") and not self.estado.get("unido"):
+            self.estado["unido"] = True
+        self.guardar_estado()
+        self.actualizar_hostname()
+        self.refrescar_unidades()
+        self.actualizar_banner()
+
+    def mostrar_ips(self):
+        for w in self.fr_ips.winfo_children():
+            w.destroy()
+        filas = SYS.describir_ips(self.adaptadores)
+        if not filas:
+            self.L(self.fr_ips, "No detectada (conecta el cable)", 12, True, color=C["red"]).pack(fill="x")
+        for etq, ip in filas:
+            fila = tk.Frame(self.fr_ips, bg=C["card"])
+            fila.pack(fill="x")
+            cable = etq == "Cable"
+            self.L(fila, ip, 20 if cable else 11, True, color=C["blue"] if cable else C["label2"]).pack(side="left")
+            self.L(fila, f"  {etq}" + (" ← usa esta en la PC vieja" if cable else ""), 8,
+                   color=C["label2"]).pack(side="left", pady=(S(8), 0))
+
+    def _base_default(self):
+        perfil = self.cfg.get("perfil") or self.info.get("perfil") or "D2"
+        if self.v_guion.get():
+            return f"{self.cfg['unidad']}-{self.cfg['empresa']}-{perfil}-"
+        return f"{self.cfg['unidad']}{self.cfg['empresa']}{perfil}"
+
+    def _regenerar_base(self):
+        self.v_base.set(self._base_default())
+
+    def hostname_actual(self):
+        return self.v_base.get().strip() + ultimos5(self.v_serie.get())
+
+    def actualizar_hostname(self):
+        if not hasattr(self, "lbl_host"):
+            return
+        h = self.hostname_actual()
+        ok, msg = SYS.hostname_valido(h)
+        self.lbl_host.config(text=h or "—", fg=C["blue"] if ok else C["red"])
+        actual = SYS.nombre_host()
+        nota = msg if not ok else (f"Nombre actual: {actual}" + ("  ✓ ya coincide" if actual.lower() == h.lower() else ""))
+        if not self.v_serie.get().strip():
+            nota = "Falta la serie del CPU: escríbela en la pestaña 1."
+        self.lbl_host_ok.config(text=nota, fg=C["red"] if not ok else C["label2"])
+
+    # ==================================================================
+    # Banner «siguiente paso»
+    # ==================================================================
+    def actualizar_banner(self):
+        if not hasattr(self, "lbl_banner"):
+            return
+        adm = self.info.get("admin", True)
+        m = getattr(self, "modo", 0)
+        if m == 2:
+            h, i, pn = self.relacion.resumen()
+            t = f"Relación: {h} hechos · {i} incompletos · {pn} pendientes. Doble clic en una fila para editarla."
+        elif not adm and self.info:
+            t = "⚠  Cierra y abre el programa como administrador (clic derecho → Ejecutar como administrador)."
+        elif m == 1:
+            if self.estado.get("enviado"):
+                t = "✓ Envío completado. Retira el cable y NO borres nada de esta PC: se conserva 2 días."
+            else:
+                t = ("Elige qué respaldar y pulsa «Analizar» y luego «Enviar». "
+                     "Antes, activa el receptor en la PC nueva.")
+        else:
+            if self.estado.get("unido") or self.info.get("unido"):
+                t = "Paso 3 · Equipo en el dominio. Inicia sesión con el usuario y completa la lista final y el registro."
+            elif self.estado.get("recibido"):
+                t = "Paso 2 · Datos recibidos ✓. Conecta el WiFi, verifica la red y pulsa «Unir al dominio»."
+            else:
+                t = ("Paso 1 · Conecta el cable entre las dos PCs, pulsa «Activar receptor» "
+                     "y envía desde la PC vieja.")
+        self.lbl_banner.config(text=t)
+
+    # ==================================================================
+    # Cable directo (IP fija) y red
+    # ==================================================================
+    def toggle_ip_fija(self, ip):
+        if self.ip_fija_activa or SYS.ip_fija_pendiente():
+            ok, msg = SYS.ip_fija_restaurar()
+            self.ip_fija_activa = not ok
+            self.log(msg, "ok" if ok else "err")
+        else:
+            a = SYS.adaptador_cable(self.adaptadores or SYS.adaptadores())
+            if not a:
+                messagebox.showwarning("Cable directo", "No se encontró un adaptador de red por cable.")
+                return
+            ok, msg = SYS.ip_fija_aplicar(a["alias"], ip)
+            self.ip_fija_activa = ok
+            self.log(f"IP fija {ip} en «{a['alias']}»" if ok else f"No se pudo fijar la IP: {msg}", "ok" if ok else "err")
+            if ok and self.modo == 1:
+                self.v_ip.set(IP_DIRECTA_NUEVA)
+        t = "Restaurar red (DHCP)" if self.ip_fija_activa else "Cable directo (IP fija)"
+        self.btn_ipfija_n.set_text(t)
+        self.btn_ipfija_v.set_text(t)
+        self.en_hilo("info", self._cargar_info)
+
+    def conectar_wifi(self):
+        ssid, clave = self.v_ssid.get().strip(), self.v_pass_wifi.get()
+        if not ssid or not clave:
+            messagebox.showwarning("WiFi", "Escribe el SSID y la clave del WiFi.")
+            return
+        self.estado_txt(f"Conectando a {ssid}…", "warn")
+
+        def run():
+            ok, msg = SYS.wifi_conectar(ssid, clave, log=lambda t: self.log(t, "warn"))
+            self.log(msg, "ok" if ok else "err")
+            self.estado_txt(msg, "ok" if ok else "err")
+            self.ui(lambda: self.en_hilo("info", self._cargar_info))
+            if ok:
+                time.sleep(4)
+                self._verificar_red()
+        self.en_hilo("wifi", run)
+
+    def verificar_red(self):
+        self.en_hilo("red", self._verificar_red)
+
+    def _verificar_red(self):
+        self.estado_txt("Verificando la red corporativa…", "warn")
+        adap = SYS.adaptadores()
+        res, dc = SYS.verificar_red(self.cfg["dominio"], adap)
+        self.dc_ip = dc
+        filas = [self.f_red, self.f_dns, self.f_dc, self.f_hora]
+        for fr in filas:
+            self.ui(fr.set, None, "")
+        for fr, (nombre, nivel, detalle) in zip(filas, res):
+            self.ui(fr.set, nivel, detalle)
+        self.ui(self.mostrar_ips)
+        self.adaptadores = adap
+        errores = [r for r in res if r[1] == "err"]
+        self.estado_txt("Red lista para unir al dominio" if not errores else "La red necesita atención",
+                        "ok" if not errores else "err")
+        self.res["red"] = res
+
+    def sincronizar_hora(self):
+        if not self.dc_ip:
+            messagebox.showinfo("Hora", "Primero pulsa «Verificar red».")
+            return
+
+        def run():
+            self.log("Sincronizando la hora con el dominio…", "info")
+            for ln in SYS.sincronizar_hora(self.dc_ip):
+                self.log(ln, None)
+            self._verificar_red()
+        self.en_hilo("hora", run)
+
+    # ==================================================================
+    # RECEPTOR (PC nueva)
+    # ==================================================================
+    def cambiar_destino(self):
+        d = filedialog.askdirectory(title="Carpeta de destino de la migración")
+        if d:
+            self.destino = d if os.path.basename(d).lower() == "backup_migracion" else os.path.join(d, "BACKUP_MIGRACION")
+            self.cfg["destino_backup"] = self.destino
+            U.guardar_config(self.cfg)
+            self.lbl_dest.config(text=self.destino)
+
+    def iniciar_receptor(self):
+        if not self.info.get("admin", True):
+            if not messagebox.askyesno("Sin permisos de administrador",
+                                       "Sin administrador no se pueden abrir los puertos del Firewall solos. "
+                                       "¿Continuar de todos modos?"):
+                return
+        self.nuevo_job()
+        self.en_hilo("info", self._cargar_info)
+        threading.Thread(target=self._hilo_receptor, args=(self.job, self.destino), daemon=True).start()
+
+    def _hilo_receptor(self, job, destino):
+        stop = threading.Event()
+        threading.Thread(target=M.servidor_discovery, args=(stop,), daemon=True).start()
+        p = job.prog
+        try:
+            if SYS.abrir_firewall(M.PORT_TRANSFER, M.PORT_DISCOVER):
+                self.fw_abierto = True
+                job.log("Firewall: puertos abiertos automáticamente.", "ok")
+            ips = ", ".join(ip for _, ip in SYS.describir_ips()) or "sin IP"
+            job.log(f"Receptor activo · IP {ips} · puerto {M.PORT_TRANSFER}", "info")
+            job.log(f"Destino: {destino}", None)
+            self.estado_txt("Esperando al emisor…", "info")
+            res = M.recibir(job, destino, limite=int(self.cfg["limite_gb"]) * 1024 ** 3,
+                            al_conectar=lambda h, ip, inf: self.ui(self.on_pc_vieja, h, ip, inf))
+            p.fase, p.completo = "fin", True
+            malos = res["malos"]
+            self.estado["recibido"] = True
+            self.estado["transfer"] = {"ok": res["ok"], "ya": res["ya"], "malos": len(malos), "bytes": res["bytes"],
+                                       "seg": res["seg"], "host_viejo": res["host"], "total": res["total"],
+                                       "fecha": datetime.now().isoformat(timespec="seconds")}
+            self.res["transfer"] = self.estado["transfer"]
+            self.guardar_estado()
+            self.estado_txt("¡Migración completada!" if not malos else "Completada con advertencias",
+                            "ok" if not malos else "warn")
+            job.log(f"Listo: {res['ok'] + res['ya']:,} de {res['total']:,} archivos verificados.", "ok")
+            texto = (f"{res['ok'] + res['ya']:,} archivos recibidos y verificados ({fmt_bytes(res['bytes'])} en esta "
+                     f"sesión, {fmt_tiempo(res['seg'])}).\n\nCarpeta:\n{destino}\n\nReporte: _REPORTE_MIGRACION.txt")
+            if malos:
+                self.ui(messagebox.showwarning, "Migración con advertencias",
+                        texto + f"\n\n{len(malos)} archivos fallaron la verificación y se descartaron.")
+            else:
+                self.ui(messagebox.showinfo, "Migración finalizada", texto + "\n\nSiguiente: pestaña «2 · Dominio».")
+            self.ui(self.cambiar_sub, 1)
+        except M.Cancelado:
+            p.fase = "error"
+            self.estado_txt("Receptor detenido.", "warn")
+            job.log("Receptor detenido por el usuario.", "warn")
+        except Exception as e:
+            p.fase = "error"
+            if job.cancel.is_set():
+                self.estado_txt("Receptor detenido.", "warn")
+            else:
+                self.estado_txt("Error en el receptor", "err")
+                job.log(f"Error: {e}", "err")
+                self.ui(messagebox.showerror, "Error en el receptor", f"{e}")
+        finally:
+            stop.set()
+            job.abortar()
+            self.ui(self.set_ocupado, False)
+            self.ui(self.actualizar_banner)
+
+    def on_pc_vieja(self, host, ip, info):
+        self.estado["info_vieja"] = info
+        self.estado["host_viejo"] = host
+        mons = ", ".join(m.get("serie", "") for m in info.get("monitores", []) if m.get("serie"))
+        self.lbl_vieja.config(text=f"{host}  ({ip})\nSerie CPU: {info.get('serie', '—')}\nMonitor: {mons or '—'}"
+                                   f"\nUsuario en sesión: {info.get('usuario', '—')}", fg=C["label"])
+        self.r_cpu_a.set(info.get("serie", ""))
+        self.r_mon_a.set(mons)
+        self.guardar_estado()
+
+    # ==================================================================
+    # Dominio (PC nueva)
+    # ==================================================================
+    def _credenciales_ok(self):
+        if not self.v_user_dom.get().strip() or not self.v_pass_dom.get():
+            messagebox.showwarning("Dominio", "Escribe el usuario y la contraseña de dominio.")
+            return False
+        return True
+
+    def _recordar(self):
+        if self.v_recordar.get():
+            guardar_credenciales({"usuario": self.v_user_dom.get().strip(), "clave": self.v_pass_dom.get(),
+                                  "wifi_ssid": self.v_ssid.get().strip(), "wifi_clave": self.v_pass_wifi.get()})
+        else:
+            borrar_credenciales()
+        self.cfg["usuario_dominio"] = self.v_user_dom.get().strip()
+        self.cfg["wifi_ssid"] = self.v_ssid.get().strip()
+        self.cfg["guion"] = self.v_guion.get()
+        self.cfg["base_hostname"] = self.v_base.get().strip()
+        U.guardar_config(self.cfg)
+
+    def solo_renombrar(self):
+        h = self.hostname_actual()
+        ok, msg = SYS.hostname_valido(h)
+        if not ok:
+            messagebox.showerror("Nombre no válido", msg)
+            return
+        if not messagebox.askyesno("Renombrar", f"¿Cambiar el nombre del equipo a {h}?\nSe aplica al reiniciar."):
+            return
+        self._recordar()
+
+        def run():
+            ok, msg = SYS.renombrar_equipo(h)
+            self.log(msg, "ok" if ok else "err")
+            self.ui((messagebox.showinfo if ok else messagebox.showerror), "Renombrar", msg)
+        self.en_hilo("renombrar", run)
+
+    def unir_dominio(self):
+        h = self.hostname_actual()
+        ok, msg = SYS.hostname_valido(h)
+        if not ok:
+            messagebox.showerror("Nombre no válido", msg)
+            return
+        if not self.v_serie.get().strip():
+            messagebox.showerror("Falta la serie", "Escribe la serie del CPU para formar el nombre del equipo.")
+            return
+        if not self.info.get("admin", True):
+            messagebox.showerror("Administrador", "Abre el programa como administrador para unir al dominio.")
+            return
+        if not self._credenciales_ok():
+            return
+        errores = [r for r in self.res.get("red", []) if r[1] == "err"]
+        if not self.res.get("red"):
+            messagebox.showinfo("Red", "Primero pulsa «Verificar red» para comprobar la conexión.")
+            return
+        if errores and not messagebox.askyesno(
+                "La red tiene problemas",
+                "La verificación de red encontró errores:\n- " + "\n- ".join(r[0] for r in errores) +
+                "\n\nUnir al dominio probablemente fallará. ¿Intentarlo de todos modos?"):
+            return
+        if not messagebox.askyesno("Unir al dominio",
+                                   f"Nombre: {h}\nDominio: {self.cfg['dominio']}\n\nSe unirá al dominio y luego "
+                                   "pedirá reiniciar. ¿Continuar?"):
+            return
+        self._recordar()
+        self.nuevo_job()
+
+        def run():
+            self.estado_txt("Uniendo al dominio…", "warn")
+            self.log(f"Renombrando a {h} y uniendo a {self.cfg['dominio']}…", "info")
+            ok, msg = SYS.unir_dominio(self.cfg["dominio"], self.v_user_dom.get().strip(),
+                                       self.v_pass_dom.get(), h)
+            self.log(msg.splitlines()[0], "ok" if ok else "err")
+            if ok:
+                self.estado.update({"unido": True, "hostname": h})
+                self.guardar_estado()
+                self.estado_txt("Unido al dominio. Falta reiniciar.", "ok")
+                if self.preguntar("Equipo unido", f"{h} se unió al dominio.\n\n¿Reiniciar ahora? "
+                                                  "Después inicia sesión con «Otro usuario» y el usuario final."):
+                    SYS.reiniciar(10)
+                    self.log("Reiniciando en 10 segundos…", "warn")
+            else:
+                self.estado_txt("No se pudo unir al dominio", "err")
+                self.ui(messagebox.showerror, "No se pudo unir al dominio", msg)
+            self.ui(self.set_ocupado, False)
+            self.ui(self.actualizar_banner)
+        threading.Thread(target=run, daemon=True).start()
+
+    # ==================================================================
+    # Lista final (PC nueva, ya en el dominio)
+    # ==================================================================
+    def chk_dominio(self):
+        unido, dom = SYS.estado_dominio()
+        host, esperado = SYS.nombre_host(), self.hostname_actual()
+        if unido:
+            ok = host.lower() == esperado.lower() or not self.v_serie.get().strip()
+            self.f_fin["dominio"].set("ok" if ok else "warn", f"{host} en {dom}" + ("" if ok else f" (se esperaba {esperado})"))
+            self.estado["unido"] = True
+        else:
+            self.f_fin["dominio"].set("err", "El equipo NO está en un dominio todavía.")
+        self.res["dominio"] = (unido, dom, host)
+        self.guardar_estado()
+        self.actualizar_banner()
+
+    def chk_ivanti(self):
+        self.ui(self.f_fin["ivanti"].set, "run", "Buscando el agente…")
+        r = SYS.ivanti_estado(self.cfg)
+        self.res["ivanti"] = r
+        esperado = int(self.cfg["ivanti_items"])
+        corriendo = [s for s in r["servicios"] if s["estado"].lower() in ("running", "en ejecución", "en ejecucion")]
+        if r["existe"]:
+            det = f"{r['ruta']} · {r['items']} elementos en EPM Agent (esperado {esperado})"
+            if corriendo:
+                det += f" · servicio activo: {corriendo[0]['visible'] or corriendo[0]['nombre']}"
+            nivel = "ok" if r["items"] >= esperado - 2 or corriendo else "warn"
+            self.ui(self.f_fin["ivanti"].set, nivel, det)
+            return nivel == "ok"
+        self.ui(self.f_fin["ivanti"].set, "warn", "Aún no aparece (se instala solo en segundo plano). "
+                                                    "Se sigue buscando automáticamente.")
+        self.iniciar_vigilancia_ivanti()
+        return False
+
+    def iniciar_vigilancia_ivanti(self):
+        if self.vigilando_ivanti:
+            return
+        self.vigilando_ivanti = True
+
+        def run():
+            fin = time.time() + 20 * 60
+            while time.time() < fin and self.vigilando_ivanti:
+                time.sleep(20)
+                r = SYS.ivanti_estado(self.cfg)
+                if r["existe"]:
+                    self.res["ivanti"] = r
+                    self.ui(self.f_fin["ivanti"].set, "ok", f"Detectado: {r['ruta']} · {r['items']} elementos")
+                    self.log("IVANTI detectado.", "ok")
+                    break
+            self.vigilando_ivanti = False
+        threading.Thread(target=run, daemon=True).start()
+
+    def chk_politicas(self):
+        self.ui(self.f_fin["politicas"].set, "run", "Ejecutando gpupdate /force… (puede tardar 1 min)")
+        ok, nombres = SYS.actualizar_politicas()
+        self.res["gpo"] = nombres
+        if nombres:
+            self.ui(self.f_fin["politicas"].set, "ok", f"{len(nombres)} políticas: " + ", ".join(nombres[:4]) +
+                    ("…" if len(nombres) > 4 else ""))
+        else:
+            self.ui(self.f_fin["politicas"].set, "warn", "No se detectaron políticas de dominio. ¿Ya iniciaste "
+                                                          "sesión con el usuario del dominio y estás en la red?")
+
+    def _resolver_dir_fuentes(self):
+        d = self.cfg["fuentes_dir"]
+        if d and os.path.isdir(d):
+            return d
+        d = SYS.buscar_dir_fuentes([U.dir_app()])
+        if not d:
+            d = filedialog.askdirectory(title="Selecciona la carpeta «Tipografías» (Noto Sans y Patria)")
+        if d:
+            self.cfg["fuentes_dir"] = d
+            U.guardar_config(self.cfg)
+        return d
+
+    def accion_fuentes(self):
+        d = self._resolver_dir_fuentes()
+        if d:
+            self.en_hilo("fuentes", self.chk_fuentes, d)
+
+    def chk_fuentes(self, carpeta):
+        archivos = SYS.listar_fuentes(carpeta)
+        noto, patria = SYS.contar_fuentes(archivos)
+        en, ep = int(self.cfg["fuentes_noto"]), int(self.cfg["fuentes_patria"])
+        self.ui(self.f_fin["fuentes"].set, "run", f"Instalando {len(archivos)} tipografías para todos los usuarios…")
+
+        def prog(i, n, nombre):
+            if i % 10 == 0:
+                self.ui(self.f_fin["fuentes"].set, "run", f"Instalando {i}/{n}…")
+        ok, ya, fallos = SYS.instalar_fuentes(archivos, prog)
+        presentes = sum(1 for f in archivos if SYS.fuente_instalada(f))
+        self.res["fuentes"] = {"noto": noto, "patria": patria, "instaladas": ok, "ya": ya,
+                               "fallos": len(fallos), "presentes": presentes, "total": len(archivos)}
+        cuentas_ok = noto == en and patria == ep
+        det = f"Noto Sans {noto}/{en} · Patria {patria}/{ep} · instaladas {presentes}/{len(archivos)}"
+        if fallos:
+            det += f" · {len(fallos)} con error"
+            for f, m in fallos[:5]:
+                self.log(f"Tipografía con error: {f} ({m})", "err")
+        nivel = "ok" if (cuentas_ok and presentes == len(archivos) and not fallos) else "warn"
+        self.ui(self.f_fin["fuentes"].set, nivel, det)
+
+    def chk_impresora(self):
+        if not self.cfg["usar_impresora"]:
+            self.ui(self.f_fin["impresora"].set, None, "Desactivada en Ajustes (el cliente no la pidió).")
+            return
+        self.ui(self.f_fin["impresora"].set, "run", "Conectando…")
+        ruta = self.cfg["impresora"]
+        if SYS.impresora_existe(ruta):
+            self.ui(self.f_fin["impresora"].set, "ok", "Ya está conectada.")
+            self.res["impresora"] = (True, "Ya conectada")
+            return
+        ok, msg = SYS.conectar_impresora(ruta)
+        self.res["impresora"] = (ok, msg)
+        self.ui(self.f_fin["impresora"].set, "ok" if ok else "warn", msg)
+
+    def ejecutar_todo(self):
+        carpeta = None
+        if "fuentes" not in self.tareas:
+            carpeta = self._resolver_dir_fuentes()
+
+        def run():
+            self.chk_dominio()
+            self.chk_ivanti()
+            self.chk_politicas()
+            if carpeta:
+                self.chk_fuentes(carpeta)
+            self.chk_impresora()
+            self.log("Lista final revisada.", "ok")
+            self.estado_txt("Lista final revisada", "ok")
+            self.ui(self.actualizar_faltantes)
+        self.en_hilo("todo", run)
+
+    def abrir_restaurar(self):
+        raiz = os.path.join(self.destino, "Users")
+        if not os.path.isdir(raiz):
+            messagebox.showinfo("Restaurar", f"No hay respaldo en:\n{raiz}")
+            return
+        origenes = sorted(d for d in os.listdir(raiz) if os.path.isdir(os.path.join(raiz, d)))
+        destinos = SYS.perfiles_locales()
+        if not origenes or not destinos:
+            messagebox.showinfo("Restaurar", "No hay perfiles de origen o destino. El usuario debe haber "
+                                             "iniciado sesión al menos una vez en esta PC.")
+            return
+        win = tk.Toplevel(self.root)
+        win.title("Restaurar datos al perfil")
+        win.configure(bg=C["card"])
+        win.transient(self.root)
+        win.grab_set()
+        self.L(win, "Perfil de la PC vieja (origen)", 9, color=C["label2"]).pack(padx=14, pady=(12, 2), anchor="w")
+        lo = tk.Listbox(win, height=6, exportselection=False, bg=C["fill"], fg=C["label"], font=self.f(10),
+                        selectbackground=C["blue"], relief="flat", highlightthickness=0, activestyle="none")
+        for o in origenes:
+            lo.insert(tk.END, o)
+        lo.pack(padx=14, fill="x")
+        self.L(win, "Perfil de esta PC (destino)", 9, color=C["label2"]).pack(padx=14, pady=(10, 2), anchor="w")
+        ld = tk.Listbox(win, height=5, exportselection=False, bg=C["fill"], fg=C["label"], font=self.f(10),
+                        selectbackground=C["blue"], relief="flat", highlightthickness=0, activestyle="none")
+        for d in destinos:
+            ld.insert(tk.END, d)
+        ld.pack(padx=14, fill="x")
+        self.L(win, "Copia Escritorio, Documentos, Descargas, Imágenes, Videos, Música y Favoritos sin pisar\n"
+                    "archivos más nuevos. El respaldo NO se borra.", 8, color=C["label2"]).pack(padx=14, pady=8, anchor="w")
+
+        def aplicar():
+            if not lo.curselection() or not ld.curselection():
+                messagebox.showwarning("Restaurar", "Elige un perfil de origen y uno de destino.")
+                return
+            o, d = origenes[lo.curselection()[0]], destinos[ld.curselection()[0]]
+            win.destroy()
+            self.restaurar(o, d)
+        fila = tk.Frame(win, bg=C["card"])
+        fila.pack(fill="x", padx=14, pady=(0, 12))
+        RoundedButton(fila, "Restaurar", aplicar, C["blue"], "#FFFFFF", C["card"], self.f(9, True), 36, 110).pack(side="right")
+        RoundedButton(fila, "Cancelar", win.destroy, C["fill"], C["red"], C["card"], self.f(9, True), 36, 100).pack(side="right", padx=8)
+
+    def restaurar(self, origen, destino_perfil):
+        self.nuevo_job()
+        job = self.job
+
+        def run():
+            base_o = os.path.join(self.destino, "Users", origen)
+            base_d = os.path.join(os.environ.get("SystemDrive", "C:") + "\\", "Users", destino_perfil)
+            job.prog.fase = "transfiriendo"
+            todo_ok = True
+            for carpeta in SYS.CARPETAS_PERFIL:
+                src = os.path.join(base_o, carpeta)
+                if not os.path.isdir(src):
+                    continue
+                job.log(f"Restaurando {carpeta}…", "info")
+                self.estado_txt(f"Restaurando {carpeta}…", "warn")
+                ok, rc = SYS.robocopy(src, os.path.join(base_d, carpeta), log=lambda t: job.log(t, None),
+                                      cancelar=job.cancel.is_set)
+                if not ok:
+                    todo_ok = False
+                    job.log(f"{carpeta}: robocopy terminó con código {rc}", "err")
+            job.prog.fase, job.prog.completo = "fin", True
+            self.estado_txt("Datos restaurados" if todo_ok else "Restaurado con advertencias", "ok" if todo_ok else "warn")
+            self.ui(self.f_fin["datos"].set, "ok" if todo_ok else "warn",
+                    f"{origen} → {destino_perfil}" + ("" if todo_ok else " (con advertencias, ver actividad)"))
+            if os.path.isdir(os.path.join(self.destino, "D")):
+                job.log(f"La unidad D: de la PC vieja quedó en {os.path.join(self.destino, 'D')}", "info")
+            self.ui(self.set_ocupado, False)
+        threading.Thread(target=run, daemon=True).start()
+
+    # ==================================================================
+    # Registro en la relación
+    # ==================================================================
+    def rellenar_registro(self):
+        iv = self.estado.get("info_vieja") or {}
+        if iv and not self.r_cpu_a.get():
+            self.r_cpu_a.set(iv.get("serie", ""))
+        if iv and not self.r_mon_a.get():
+            self.r_mon_a.set(", ".join(m.get("serie", "") for m in iv.get("monitores", []) if m.get("serie")))
+
+    def datos_registro(self):
+        return {"Usuario Nombre": self.r_nombre.get(), "Apellido": self.r_apellido.get(),
+                "Serie cpu Nuevo": self.v_serie.get(), "Serie monitor Nuevo": self.v_monitor.get(),
+                "Serie monitor antiguo": self.r_mon_a.get(), "Serie cpu antiguo": self.r_cpu_a.get(),
+                "Tipo": self.r_tipo.get(), "Hostname": self.hostname_actual()}
+
+    def actualizar_faltantes(self):
+        f = faltantes(self.datos_registro())
+        self.lbl_faltan.config(text=("Falta: " + ", ".join(f)) if f else "Registro completo ✓",
+                               fg=C["yellow"] if f else C["green"])
+
+    def elegir_pendiente(self):
+        pend = self.relacion.pendientes()
+        if not pend:
+            messagebox.showinfo("Pendientes", "No hay usuarios pendientes. Cárgalos en la pestaña RELACIÓN "
+                                              "(«Pegar usuarios pendientes») o escribe el nombre a mano.")
+            return
+        win = tk.Toplevel(self.root)
+        win.title("Usuarios pendientes")
+        win.configure(bg=C["card"])
+        win.transient(self.root)
+        win.grab_set()
+        lb = tk.Listbox(win, height=14, width=46, exportselection=False, bg=C["fill"], fg=C["label"],
+                        font=self.f(10), selectbackground=C["blue"], relief="flat", highlightthickness=0,
+                        activestyle="none")
+        for _, f in pend:
+            lb.insert(tk.END, f"{f['Usuario Nombre']} {f['Apellido']}")
+        lb.pack(padx=14, pady=12, fill="both", expand=True)
+
+        def elegir():
+            if lb.curselection():
+                i, f = pend[lb.curselection()[0]]
+                self.idx_pendiente = i
+                self.r_nombre.set(f["Usuario Nombre"])
+                self.r_apellido.set(f["Apellido"])
+                self.actualizar_faltantes()
+            win.destroy()
+        RoundedButton(win, "Elegir", elegir, C["blue"], "#FFFFFF", C["card"], self.f(9, True), 36, 110).pack(pady=(0, 12))
+
+    def guardar_relacion(self):
+        d = self.datos_registro()
+        f = faltantes(d)
+        if f and not messagebox.askyesno("Faltan datos", "Faltan: " + ", ".join(f) +
+                                         "\n\n¿Guardar de todos modos? Quedará marcado como «Incompleto»."):
+            return
+        i = self.idx_pendiente
+        if i is not None and not (0 <= i < len(self.relacion.filas) and not self.relacion.filas[i]["Serie cpu Nuevo"].strip()):
+            i = None
+        idx, fila = self.relacion.guardar_equipo(d, i)
+        self.idx_pendiente = None
+        self.estado["registrado"] = True
+        self.guardar_estado()
+        self.actualizar_faltantes()
+        msg = f"{fila['Hostname']} guardado ({fila['Estado']}).\n\n{self.relacion.xlsx}"
+        if self.relacion.error_xlsx:
+            msg += f"\n\n(No se pudo actualizar el XLSX: {self.relacion.error_xlsx}. El CSV sí se guardó.)"
+        messagebox.showinfo("Relación de equipos", msg)
+        self.actualizar_banner()
+
+    # ==================================================================
+    # Evidencia (ServiceNow)
+    # ==================================================================
+    def generar_evidencia(self):
+        info = self.info or {}
+        host = SYS.nombre_host()
+        unido, dom = SYS.estado_dominio()
+        iv = self.estado.get("info_vieja") or {}
+        tr = self.estado.get("transfer") or {}
+        sec = []
+        sec.append(("Equipo nuevo", [
+            ("Hostname", host, "ok" if host.lower() == self.hostname_actual().lower() else "warn"),
+            ("Serie CPU", self.v_serie.get() or "—", None),
+            ("Serie monitor", self.v_monitor.get() or "—", None),
+            ("Modelo", f"{info.get('fabricante', '')} {info.get('modelo', '')}".strip() or "—", None),
+            ("Sistema operativo", info.get("os", "—"), None),
+            ("Dominio", dom if unido else "NO unido", "ok" if unido else "err"),
+            ("Usuario en sesión", info.get("usuario", "—"), None)]))
+        sec.append(("Red", [(f"{etq}", ip, None) for etq, ip in SYS.describir_ips()] or [("IP", "—", None)]))
+        iv_r = self.res.get("ivanti")
+        sec.append(("Seguridad", [
+            ("IVANTI", (f"{iv_r['ruta']} · {iv_r['items']} elementos" if iv_r and iv_r["existe"] else "no detectado"),
+             "ok" if iv_r and iv_r["existe"] else "warn"),
+            ("Políticas de dominio aplicadas", ", ".join(self.res.get("gpo", [])) or "sin datos",
+             "ok" if self.res.get("gpo") else "warn")]))
+        fu = self.res.get("fuentes")
+        imp = self.res.get("impresora")
+        sec.append(("Aplicativos", [
+            ("Tipografías", (f"Noto Sans {fu['noto']} · Patria {fu['patria']} · presentes {fu['presentes']}/{fu['total']}"
+                             if fu else "sin datos"), "ok" if fu and fu["presentes"] == fu["total"] else "warn"),
+            ("Impresora", (imp[1] if imp else "sin datos"), "ok" if imp and imp[0] else "warn")]))
+        sec.append(("Migración desde la PC vieja", [
+            ("PC vieja", f"{iv.get('host', self.estado.get('host_viejo', '—'))}", None),
+            ("Serie CPU antiguo", iv.get("serie", self.r_cpu_a.get() or "—"), None),
+            ("Serie monitor antiguo", self.r_mon_a.get() or "—", None),
+            ("Archivos verificados", f"{tr.get('ok', 0) + tr.get('ya', 0):,} de {tr.get('total', 0):,}" if tr else "sin datos",
+             "ok" if tr and not tr.get("malos") else "warn"),
+            ("Datos transferidos", fmt_bytes(tr.get("bytes", 0)) if tr else "—", None),
+            ("Archivos descartados", str(tr.get("malos", 0)) if tr else "—", "ok" if tr and not tr.get("malos") else "warn")]))
+        carpeta = os.path.join(self.relacion.dir, "Evidencias")
+        txt, htm = escribir_evidencia(carpeta, host, f"Evidencia técnica — {host}", sec)
+        self.log(f"Evidencia guardada: {txt}", "ok")
+        self.ui(messagebox.showinfo, "Evidencia", f"Se generó la evidencia para ServiceNow:\n{txt}\n{htm}")
+        self.ui(self.abrir_ruta, carpeta)
+
+    def abrir_ruta(self, ruta):
+        try:
+            if SYS.IS_WIN:
+                os.startfile(ruta)
+        except OSError:
+            pass
+
+    # ==================================================================
+    # EMISOR (PC vieja)
+    # ==================================================================
+    def refrescar_unidades(self):
+        if not hasattr(self, "fr_unidades"):
+            return
+        for w in self.fr_unidades.winfo_children():
+            w.destroy()
+        previas = {k: v.get() for k, v in self.vars_unidad.items()}
+        self.vars_unidad = {}
+        sistema = (os.environ.get("SystemDrive", "C:") or "C:").upper()
+        app_drive = os.path.splitdrive(U.dir_app())[0].upper()
+        avisos = []
+        unds = M.unidades() or ([{"letra": "D:", "tipo": "fijo", "etiqueta": "DATOS", "total": 500 * 1024 ** 3,
+                                  "libre": 300 * 1024 ** 3}] if SYS.DEMO else [])
+        hay_d = False
+        for u in unds:
+            L = u["letra"].upper()
+            if L == sistema or u["tipo"] not in ("fijo", "usb"):
+                continue
+            usado = u["total"] - u["libre"]
+            esta_app = L == app_drive
+            sospechosa = any(x in u["etiqueta"].lower() for x in ("recovery", "restore", "pbr", "oem", "lenovo_"))
+            por_defecto = (L == "D:" and u["tipo"] == "fijo" and not esta_app and not sospechosa)
+            if L == "D:":
+                hay_d = True
+            var = tk.BooleanVar(value=previas.get(L, por_defecto))
+            self.vars_unidad[L] = var
+            det = f"{u['tipo'].upper()} · {fmt_bytes(usado)} usados de {fmt_bytes(u['total'])}"
+            if esta_app:
+                det += " · ES LA USB DEL PROGRAMA: no se respalda"
+                var.set(False)
+            if sospechosa:
+                det += " · parece partición de recuperación"
+            Switch(self.fr_unidades, f"Unidad {L} «{u['etiqueta'] or 'sin nombre'}»", var, C["card"], self.f(9),
+                   detalle=det, wrap=330).pack(fill="x", pady=S(4))
+        if not hay_d and not SYS.DEMO:
+            avisos.append("⚠ Este equipo NO tiene unidad D: (revisa si debería tenerla).")
+        self.lbl_avisos.config(text="\n".join(avisos))
+
+    def add_carpeta(self):
+        d = filedialog.askdirectory(title="Selecciona una carpeta de origen")
+        if d and d not in self.rutas_extra:
+            self.rutas_extra.append(d)
+            self.lb_extra.insert(tk.END, "📁 " + d)
+
+    def add_archivos(self):
+        for f in filedialog.askopenfilenames(title="Selecciona archivos"):
+            if f not in self.rutas_extra:
+                self.rutas_extra.append(f)
+                self.lb_extra.insert(tk.END, "📄 " + f)
+
+    def quitar_extra(self):
+        for i in reversed(self.lb_extra.curselection()):
+            self.lb_extra.delete(i)
+            del self.rutas_extra[i]
+
+    def rutas_a_enviar(self):
+        rutas = []
+        if self.v_users.get():
+            rutas.append(os.path.join((os.environ.get("SystemDrive", "C:") or "C:") + "\\", "Users"))
+        for L, v in self.vars_unidad.items():
+            if v.get():
+                rutas.append(L + "\\")
+        return rutas + list(self.rutas_extra)
+
+    def info_envio(self):
+        info = dict(self.info or {})
+        info["serie"] = self.v_serie_v.get().strip()
+        mons = [m for m in (x.strip() for x in self.v_monitor_v.get().split(",")) if m]
+        info["monitores"] = [{"serie": m} for m in mons]
+        return {k: info.get(k) for k in ("host", "usuario", "serie", "fabricante", "modelo", "monitores", "os")}
+
+    def buscar(self):
+        self.estado_txt("Buscando receptor en la red local…", "warn")
+        self.btn_buscar.set_enabled(False)
+
+        def run():
+            r = M.buscar_receptor()
+            if r:
+                self.ui(self.v_ip.set, r[0])
+                aviso = "" if r[2] == "3" else "  ⚠ versión anterior: abre Mainbit Asistente en la PC nueva"
+                self.estado_txt(f"Receptor encontrado: {r[1] or r[0]} ({r[0]}){aviso}", "ok" if not aviso else "warn")
+                self.log(f"Receptor encontrado: {r[1]} en {r[0]}{aviso}", "ok" if not aviso else "warn")
+            else:
+                self.estado_txt("Sin respuesta del receptor", "err")
+                self.ui(messagebox.showwarning, "Auto-buscar",
+                        "No se encontró el receptor.\n\nRevisa: cable conectado, receptor ACTIVO en la PC nueva, "
+                        "y que ambas tengan IP (a veces tarda ~30 s tras conectar el cable).\n"
+                        "Si la PC vieja tiene IP fija, usa «Cable directo (IP fija)» en las dos, "
+                        "o escribe la IP a mano.")
+            self.ui(lambda: self.btn_buscar.set_enabled(not self.ocupado))
+        self.en_hilo("buscar", run)
+
+    def _avisos_previos(self):
+        res = []
+        if not self.info.get("admin", True):
+            res.append(("err", "No eres administrador: no se leerán los perfiles de otros usuarios."))
+        if SYS.proceso_activo("OUTLOOK.EXE"):
+            res.append(("warn", "Outlook está abierto: los archivos .pst en uso NO se pueden copiar. Ciérralo."))
+        ses = SYS.sesiones_activas()
+        if len(ses) > 1:
+            res.append(("warn", f"Hay {len(ses)} sesiones abiertas (otros usuarios conectados pueden bloquear archivos)."))
+        return res
+
+    def accion_emisor(self, solo_analizar):
+        rutas = self.rutas_a_enviar()
+        if not rutas:
+            messagebox.showwarning("Aviso", "Activa al menos una carpeta o unidad para respaldar.")
+            return
+        ip = self.v_ip.get().strip()
+        if not solo_analizar:
+            try:
+                socket.inet_pton(socket.AF_INET, ip)
+            except OSError:
+                messagebox.showerror("IP no válida", "Escribe la IP de la PC nueva (ej. 169.254.12.34) "
+                                                     "o usa «Auto-buscar».")
+                return
+            if not self.v_serie_v.get().strip() and not messagebox.askyesno(
+                    "Falta la serie", "No se detectó la serie de esta PC vieja (se usa en la relación de equipos).\n"
+                                      "¿Continuar sin ella?"):
+                return
+        self.estado["modo"] = 1
+        self.nuevo_job()
+        threading.Thread(target=self._hilo_emisor, args=(self.job, ip, rutas, solo_analizar, self.v_cache.get(),
+                                                         self.info_envio()), daemon=True).start()
+
+    def _hilo_emisor(self, job, ip, rutas, solo_analizar, excluir_cache, info):
+        p = job.prog
+        limite = int(self.cfg["limite_gb"]) * 1024 ** 3
+        try:
+            for nivel, t in self._avisos_previos():
+                job.log("⚠ " + t, nivel)
+            p.fase = "analizando"
+            self.estado_txt("Analizando archivos…", "warn")
+            job.log("Analizando: " + ", ".join(rutas), None)
+            scan = M.escanear(job, rutas, limite, excluir_cache)
+            n, b = len(scan["archivos"]), scan["bytes"]
+            om, ex = scan["omitidos"], scan["excluidos"]
+            est = b / VELOCIDAD_ESTIMADA
+            job.log(f"Análisis: {n:,} archivos · {len(scan['carpetas']):,} carpetas · {fmt_bytes(b)} "
+                    f"(límite {self.cfg['limite_gb']} GB)", "ok")
+            for nombre, tam, cnt in scan["desglose"]:
+                job.log(f"   {nombre}: {cnt:,} archivos · {fmt_bytes(tam)}", None)
+            job.log(f"Tiempo estimado ≈ {fmt_tiempo(est)} (varía con el disco y la cantidad de archivos pequeños)", "info")
+            if sum(ex.values()):
+                job.log("Excluidos automáticamente: " + ", ".join(f"{k} {v:,}" for k, v in ex.items() if v), None)
+            for motivo, ruta in om[:40]:
+                if motivo not in ("enlace simbólico", "unión/enlace de carpeta"):
+                    job.log(f"Omitido ({motivo}): {acortar(M.limpio(ruta), 60)}", "warn")
+            if len(om) > 40:
+                job.log(f"…y {len(om) - 40:,} omitidos más (irán en el reporte).", "warn")
+            if n == 0:
+                raise ValueError("No hay archivos legibles para enviar.")
+            if solo_analizar:
+                p.fase, p.completo = "fin", True
+                self.estado_txt(f"Listo para enviar: {n:,} archivos · {fmt_bytes(b)} · ≈ {fmt_tiempo(est)}", "ok")
+                return
+            res = M.enviar_con_reintentos(job, ip, scan, info)
+            p.fase, p.completo = "fin", True
+            problemas = len(res["fallidos"]) + len(res["ilegibles"]) + res["recibidos_mal"]
+            self.estado["enviado"] = True
+            self.guardar_estado()
+            self.estado_txt("¡Envío completado!" if not problemas else "Completado con advertencias",
+                            "ok" if not problemas else "warn")
+            job.log(f"Enviados {res['enviados']:,} (+{res['ya_estaban']:,} que ya estaban) · "
+                    f"verificados por el receptor {res['recibidos_ok']:,}.", "ok")
+            texto = (f"{res['enviados'] + res['ya_estaban']:,} de {res['total_archivos']:,} archivos ya están "
+                     f"en la PC nueva.\nVerificados por el receptor: {res['recibidos_ok']:,}.\n"
+                     f"Omitidos en el análisis: {len(res['omitidos']):,}.\n\n"
+                     "Ya puedes retirar el cable. NO borres nada de esta PC: se conserva 2 días.")
+            if problemas:
+                self.ui(messagebox.showwarning, "Envío con advertencias",
+                        texto + f"\n\nCon problemas: {problemas:,} (detalle en _REPORTE_MIGRACION.txt de la PC nueva).")
+            else:
+                self.ui(messagebox.showinfo, "Envío finalizado", texto)
+        except M.Cancelado:
+            p.fase = "error"
+            self.estado_txt("Operación cancelada.", "warn")
+            job.log("Cancelado por el usuario.", "warn")
+        except M.LimiteExcedido as e:
+            p.fase = "error"
+            self.estado_txt("Denegado: supera el límite", "err")
+            desg = "\n".join(f"   {n}: {fmt_bytes(t)}" for n, t, c in e.desglose)
+            job.log(f"DENEGADO: la selección supera {self.cfg['limite_gb']} GB (va en {fmt_bytes(e.total)}).", "err")
+            self.ui(messagebox.showwarning, "Selección demasiado grande",
+                    f"La selección supera el límite de {self.cfg['limite_gb']} GB (ya lleva {fmt_bytes(e.total)}).\n\n"
+                    f"Desglose parcial:\n{desg}\n\nQuita carpetas o divide la migración en partes.")
+        except M.Rechazado as e:
+            p.fase = "error"
+            self.estado_txt("El receptor rechazó la migración", "err")
+            job.log(f"Rechazado: {str(e).splitlines()[0]}", "err")
+            self.ui(messagebox.showwarning, "Migración rechazada", str(e))
+        except Exception as e:
+            fase = p.fase
+            p.fase = "error"
+            if job.cancel.is_set():
+                self.estado_txt("Operación cancelada.", "warn")
+            elif fase == "conectando":
+                self.estado_txt("No se pudo conectar", "err")
+                job.log(f"No se pudo conectar con {ip}: {e}", "err")
+                self.ui(messagebox.showerror, "No se pudo conectar",
+                        f"No hay respuesta de {ip}.\n\nRevisa que el receptor esté ACTIVO en la PC nueva, "
+                        "el cable y la IP. Si no, prueba «Cable directo (IP fija)» en las dos PCs.")
+            else:
+                self.estado_txt("Error en la transferencia", "err")
+                job.log(f"Error: {e}", "err")
+                self.ui(messagebox.showerror, "Error en la transferencia",
+                        f"{e}\n\nPuedes volver a pulsar «Enviar»: se retoma lo que falta.")
+        finally:
+            job.abortar()
+            self.ui(self.set_ocupado, False)
+            self.ui(self.actualizar_banner)
+
+    # ==================================================================
+    # RELACIÓN (pestaña)
+    # ==================================================================
+    def refrescar_relacion(self):
+        self.tree.delete(*self.tree.get_children())
+        for i, f in enumerate(self.relacion.filas):
+            self.tree.insert("", tk.END, iid=str(i), values=[f[c] for c in COLUMNAS], tags=(f["Estado"],))
+        h, i, pn = self.relacion.resumen()
+        self.lbl_rel_res.config(text=f"{len(self.relacion.filas)} equipos · {h} hechos · {i} incompletos · {pn} pendientes")
+        self.lbl_rel_ruta.config(text=f"Archivo: {self.relacion.xlsx}  (se actualiza solo al guardar)")
+        self.actualizar_banner()
+
+    def abrir_carpeta_relacion(self):
+        self.abrir_ruta(self.relacion.dir)
+
+    def pegar_pendientes(self):
+        win = tk.Toplevel(self.root)
+        win.title("Usuarios pendientes")
+        win.configure(bg=C["card"])
+        win.transient(self.root)
+        win.grab_set()
+        self.L(win, "Pega la lista: un usuario por línea (Nombre Apellido, o Nombre<TAB>Apellido).", 9,
+               color=C["label2"]).pack(padx=14, pady=(12, 4), anchor="w")
+        t = tk.Text(win, width=60, height=16, bg=C["fill"], fg=C["label"], font=self.f(10), relief="flat",
+                    insertbackground=C["label"], highlightthickness=0, padx=8, pady=6)
+        t.pack(padx=14, pady=4)
+
+        def agregar():
+            n = self.relacion.agregar_pendientes(t.get("1.0", tk.END).splitlines())
+            win.destroy()
+            self.refrescar_relacion()
+            messagebox.showinfo("Pendientes", f"{n} usuarios agregados.")
+        RoundedButton(win, "Agregar", agregar, C["blue"], "#FFFFFF", C["card"], self.f(9, True), 36, 110).pack(pady=(4, 12))
+
+    def editar_fila(self):
+        sel = self.tree.selection()
+        if not sel:
+            messagebox.showinfo("Editar", "Selecciona una fila.")
+            return
+        i = int(sel[0])
+        fila = self.relacion.filas[i]
+        win = tk.Toplevel(self.root)
+        win.title("Editar equipo")
+        win.configure(bg=C["card"])
+        win.transient(self.root)
+        win.grab_set()
+        vars_ = {}
+        g = tk.Frame(win, bg=C["card"])
+        g.pack(padx=14, pady=12)
+        for r, c in enumerate(COLUMNAS):
+            if c in ("Estado",):
+                continue
+            self.L(g, c, 9, color=C["label2"]).grid(row=r, column=0, sticky="w", pady=3, padx=(0, 10))
+            v = tk.StringVar(value=fila[c])
+            vars_[c] = v
+            self.entrada(g, v, width=40).grid(row=r, column=1, pady=3, ipady=4)
+
+        def guardar():
+            for c, v in vars_.items():
+                fila[c] = v.get().strip()
+            self.relacion.recalcular(fila, fila.get("Notas") if fila.get("Notas") and not fila["Notas"].startswith("Falta") else None)
+            self.relacion.guardar()
+            win.destroy()
+            self.refrescar_relacion()
+        fr = tk.Frame(win, bg=C["card"])
+        fr.pack(fill="x", padx=14, pady=(0, 12))
+        RoundedButton(fr, "Guardar", guardar, C["blue"], "#FFFFFF", C["card"], self.f(9, True), 36, 110).pack(side="right")
+        RoundedButton(fr, "Cancelar", win.destroy, C["fill"], C["red"], C["card"], self.f(9, True), 36, 100).pack(side="right", padx=8)
+
+    # ==================================================================
+    # Ajustes
+    # ==================================================================
+    def abrir_ajustes(self):
+        win = tk.Toplevel(self.root)
+        win.title("Ajustes")
+        win.configure(bg=C["card"])
+        win.transient(self.root)
+        win.grab_set()
+        campos = [("unidad", "Unidad administrativa"), ("empresa", "Empresa (M = Mainbit)"),
+                  ("perfil", "Perfil (D2 / L2; vacío = detectar)"), ("dominio", "Dominio"),
+                  ("impresora", "Impresora de red (\\\\ip\\nombre)"), ("limite_gb", "Límite de migración (GB)"),
+                  ("destino_backup", "Carpeta de respaldo (PC nueva)"), ("fuentes_dir", "Carpeta de tipografías"),
+                  ("tipo_defecto", "Tipo por defecto en la relación")]
+        g = tk.Frame(win, bg=C["card"])
+        g.pack(padx=14, pady=12)
+        vs = {}
+        for r, (k, t) in enumerate(campos):
+            self.L(g, t, 9, color=C["label2"]).grid(row=r, column=0, sticky="w", pady=3, padx=(0, 10))
+            v = tk.StringVar(value=str(self.cfg[k]))
+            vs[k] = v
+            self.entrada(g, v, width=38).grid(row=r, column=1, pady=3, ipady=4)
+        vimp = tk.BooleanVar(value=self.cfg["usar_impresora"])
+        Switch(win, "Instalar la impresora (si el cliente la pide)", vimp, C["card"], self.f(9), wrap=320).pack(
+            fill="x", padx=14, pady=4)
+
+        def guardar():
+            for k, v in vs.items():
+                val = v.get().strip()
+                self.cfg[k] = int(val) if k == "limite_gb" and val.isdigit() else (val if k != "limite_gb" else self.cfg[k])
+            self.cfg["usar_impresora"] = vimp.get()
+            U.guardar_config(self.cfg)
+            self.destino = self.cfg["destino_backup"]
+            self.lbl_dest.config(text=self.destino)
+            self._regenerar_base()
+            win.destroy()
+        fr = tk.Frame(win, bg=C["card"])
+        fr.pack(fill="x", padx=14, pady=(4, 12))
+        RoundedButton(fr, "Guardar", guardar, C["blue"], "#FFFFFF", C["card"], self.f(9, True), 36, 110).pack(side="right")
+        RoundedButton(fr, "Cancelar", win.destroy, C["fill"], C["red"], C["card"], self.f(9, True), 36, 100).pack(side="right", padx=8)
+
+
+def main():
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+    raiz = tk.Tk()
+    App(raiz)
+    raiz.mainloop()
+
+
+if __name__ == "__main__":
+    main()
