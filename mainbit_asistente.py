@@ -20,6 +20,7 @@ import mb_motor as M
 import mb_sistema as SYS
 import mb_util as U
 import mb_servicio as SV
+import mb_manual as MAN
 import mb_widgets as W
 from mb_relacion import COLUMNAS, Relacion, escribir_evidencia, faltantes
 from mb_util import acortar, fmt_bytes, fmt_tiempo, ultimos5
@@ -438,6 +439,8 @@ class App:
         self.boton(f2, "Ejecutar todo", self.ejecutar_todo, C["blue"], h=40).grid(row=0, column=0, sticky="ew", padx=(0, 4))
         self.boton(f2, "Generar evidencia", lambda: self.en_hilo("evidencia", self.generar_evidencia),
                    C["green"], h=40).grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        self.boton(a, "Manual para el usuario (dónde quedó todo)", lambda: self.en_hilo("manual", self.generar_manual),
+                   C["blue"], h=40).pack(fill="x", pady=(S(8), 0))
         self.boton(a, "Terminar servicio (reporte final + nuevo equipo)", self.terminar_servicio, C["red"],
                    h=40).pack(fill="x", pady=(S(8), 0))
 
@@ -1317,6 +1320,9 @@ class App:
                     job.log(f"{carpeta}: robocopy terminó con código {rc}", "err")
             job.prog.fase, job.prog.completo = "fin", True
             self.estado_txt("Datos restaurados" if todo_ok else "Restaurado con advertencias", "ok" if todo_ok else "warn")
+            if todo_ok:
+                self.estado["restaurado"] = {"origen": origen, "destino": destino_perfil}
+                self.guardar_estado()
             self.ui(self.f_fin["datos"].set, "ok" if todo_ok else "warn",
                     f"{origen} → {destino_perfil}" + ("" if todo_ok else " (con advertencias, ver actividad)"))
             if os.path.isdir(os.path.join(self.destino, "D")):
@@ -1463,6 +1469,31 @@ class App:
         self.ui(self.lbl_cierre.config, {"text": msg, "fg": C["green"] if ok else C["yellow"]})
         self.ui((messagebox.showinfo if ok else messagebox.showwarning), "Cierre de la PC vieja", msg)
 
+    def datos_manual(self):
+        iv = self.estado.get("info_vieja") or {}
+        unido, dom = SYS.estado_dominio()
+        imp, fu = self.res.get("impresora"), self.res.get("fuentes")
+        nuevos = SV.programas_instalados()
+        viejos = iv.get("programas") or []
+        faltan = [p["nombre"] for p in (SV.comparar(viejos, nuevos)[0] if viejos else [])]
+        ficha = SV.ultima_ficha(os.path.join(U.dir_escribible(U.dir_app()), "Cierres"), iv.get("host", ""))
+        borrado = SV.fecha_min_borrado().strftime("%d/%m/%Y")
+        return MAN.datos_servicio(
+            SYS.nombre_host(), self.destino, carpetas_perfil=SYS.CARPETAS_PERFIL,
+            dominio_ok=unido, restaurado=self.estado.get("restaurado"),
+            impresora=(imp[1] if imp and imp[0] else ""),
+            fuentes=(f"{fu['presentes']} de {fu['total']} instaladas" if fu else ""),
+            faltan=faltan, tiene_lista=bool(viejos), host_viejo=iv.get("host", self.estado.get("host_viejo", "")),
+            fecha_borrado=borrado, soporte=self.cfg.get("soporte_contacto", ""))
+
+    def generar_manual(self):
+        carpeta = os.path.join(self.relacion.dir, "Reportes")
+        htm, txt, copia = MAN.escribir_manual(carpeta, self.datos_manual())
+        self.log(f"Manual del usuario: {htm}", "ok")
+        extra = f"\nCopia en el escritorio: {copia}" if copia else ""
+        self.ui(messagebox.showinfo, "Manual para el usuario", f"Se generó el manual:\n{htm}{extra}")
+        self.ui(self.abrir_ruta, os.path.dirname(copia) if copia else carpeta)
+
     def terminar_servicio(self):
         if not messagebox.askyesno("Terminar servicio",
                                    "Se generará el reporte final de este equipo y el programa se reiniciará "
@@ -1511,8 +1542,13 @@ class App:
         carpeta = os.path.join(self.relacion.dir, "Reportes")
         txt, htm = escribir_evidencia(carpeta, host, f"Reporte de servicio — {host}", sec)
         self.log(f"Reporte guardado: {txt}", "ok")
+        try:
+            mh, _, _ = MAN.escribir_manual(carpeta, self.datos_manual())
+            self.log(f"Manual del usuario: {mh}", "ok")
+        except Exception as e:
+            self.log(f"No se pudo generar el manual del usuario: {e}", "warn")
         # reinicio limpio: se borra el avance de ESTE equipo y se relanza el programa (la relación se conserva)
-        for k in ("recibido", "unido", "enviado", "info_vieja", "host_viejo", "transfer", "hostname", "registrado"):
+        for k in ("recibido", "unido", "enviado", "info_vieja", "host_viejo", "transfer", "hostname", "registrado", "restaurado"):
             self.estado.pop(k, None)
         self.guardar_estado()
         self.ui(messagebox.showinfo, "Servicio terminado", f"Reporte generado:\n{txt}\n\nEl programa se reiniciará.")
@@ -1856,7 +1892,8 @@ class App:
                   ("perfil", "Perfil (D2 / L2; vacío = detectar)"), ("dominio", "Dominio"),
                   ("impresora", "Impresora de red (\\\\ip\\nombre)"), ("limite_gb", "Límite de migración (GB)"),
                   ("destino_backup", "Carpeta de respaldo (PC nueva)"), ("fuentes_dir", "Carpeta de tipografías"),
-                  ("tipo_defecto", "Tipo por defecto en la relación")]
+                  ("tipo_defecto", "Tipo por defecto en la relación"),
+                  ("soporte_contacto", "Contacto de soporte (aparece en el manual del usuario)")]
         g = tk.Frame(win, bg=C["card"])
         g.pack(padx=14, pady=12)
         vs = {}

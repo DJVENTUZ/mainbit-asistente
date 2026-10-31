@@ -144,5 +144,25 @@ def _():
     a.cambiar_sub(2); r.update()
     r.destroy()
 
+@prueba("manual para el usuario")
+def _():
+    import mb_manual as MAN
+    raiz = tempfile.mkdtemp()
+    dest = os.path.join(raiz, "BACKUP_MIGRACION")
+    for c, n in (("Desktop", 2), ("Documents", 5)):
+        p = os.path.join(dest, "Users", "prueba", c, "sub"); os.makedirs(p)
+        for i in range(n):
+            open(os.path.join(p, f"a{i}.txt"), "w").write("x" * 500)
+    os.makedirs(os.path.join(dest, "D", "Datos"))
+    d = MAN.datos_servicio("PRUEBA1", dest, dominio_ok=True, restaurado={"origen": "prueba", "destino": "prueba"},
+                           faltan=["Programa <x>"], tiene_lista=True, host_viejo="VIEJA1", fecha_borrado="01/01/2030",
+                           soporte="Soporte 123")
+    h, t, c = MAN.escribir_manual(os.path.join(raiz, "R"), d, copiar_escritorio=False)
+    cont = open(h, encoding="utf-8").read()
+    assert "Documentos (prueba)" in cont and "5 archivos" in cont and "&lt;x&gt;" in cont and "Soporte 123" in cont
+    assert os.path.getsize(t) > 200
+    shutil.rmtree(raiz, ignore_errors=True)
+    return "manual ok"
+
 print("\nRESUMEN:", "TODO OK" if not fallos else "FALLAN -> " + ", ".join(fallos))
 sys.exit(1 if fallos else 0)

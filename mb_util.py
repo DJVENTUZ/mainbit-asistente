@@ -30,6 +30,7 @@ DEFAULTS = {
     "usuario_local_nueva": "",
     "base_hostname": "",          # última base usada (ej. 124MD2) para no reescribirla en cada PC
     "wifi_ssid": "",
+    "soporte_contacto": "",       # texto que aparece en el manual del usuario (teléfono, correo, ventanilla)
 }
 
 
