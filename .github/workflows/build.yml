@@ -16,9 +16,15 @@ jobs:
       - name: Compilar
         shell: pwsh
         run: |
-          python -m pip install --upgrade pyinstaller cryptography
+          python -m pip install --upgrade pyinstaller cryptography pywebview
           Set-Content -Encoding utf8 mb_build.py ('BUILD = "' + '${{ github.sha }}'.Substring(0,7) + ' ' + (Get-Date -Format 'dd-MMM HH:mm') + '"')
-          python -m PyInstaller --noconfirm --clean --onedir --windowed --uac-admin --name MainbitAsistente mainbit_asistente.py
+          python -m PyInstaller --noconfirm --clean --onedir --windowed --uac-admin --collect-all webview --collect-all pythonnet --collect-all clr_loader --hidden-import clr --add-data "web;web" --name MainbitAsistente mainbit_asistente.py
+          $p = Start-Process -FilePath dist\MainbitAsistente\MainbitAsistente.exe -ArgumentList "--prueba-ui" -PassThru
+          if (-not $p.WaitForExit(120000)) { $p.Kill() }
+          $r = Get-Content dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
+          Write-Host "::notice title=PRUEBA UI::$r"
+          if (-not $r -or $r -notmatch '"ok": true') { Write-Host "::error::La interfaz nueva no abrió bien: $r"; exit 1 }
+          Remove-Item dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
           Compress-Archive -Path dist\MainbitAsistente -DestinationPath MainbitAsistente.zip -Force
       - name: Publicar release "latest"
         shell: pwsh

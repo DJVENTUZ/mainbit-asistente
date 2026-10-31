@@ -1,0 +1,625 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mainbit Toolkit</title>
+<style>
+@property --ink{syntax:'<color>';inherits:true;initial-value:#fff}
+@property --ink2{syntax:'<color>';inherits:true;initial-value:rgba(255,255,255,.74)}
+@property --ink3{syntax:'<color>';inherits:true;initial-value:rgba(255,255,255,.5)}
+@property --inkS{syntax:'<color>';inherits:true;initial-value:#fff}
+@property --field{syntax:'<color>';inherits:true;initial-value:rgba(0,12,60,.26)}
+@property --line{syntax:'<color>';inherits:true;initial-value:rgba(255,255,255,.14)}
+@property --chipbg{syntax:'<color>';inherits:true;initial-value:rgba(255,255,255,.18)}
+@property --plate{syntax:'<color>';inherits:false;initial-value:rgba(0,0,0,0)}
+@property --accent{syntax:'<color>';inherits:true;initial-value:#64b5ff}
+:root{
+  --a:.18;            /* opacidad del cristal */
+  --tint:20,32,64;
+  --ink:#fff;--ink2:rgba(255,255,255,.74);--ink3:rgba(255,255,255,.5);--inkS:#fff;
+  --field:rgba(0,12,60,.26);--line:rgba(255,255,255,.14);--chipbg:rgba(255,255,255,.18);--accent:#64b5ff;
+  --green:#30d158;--amber:#ff9f0a;--blue:#0a84ff;--red:#ff453a;--r:30px;
+}
+.glass{transition:--ink .8s,--ink2 .8s,--ink3 .8s,--inkS .8s,--field .8s,--line .8s,--chipbg .8s,--accent .8s}
+body{color:var(--ink)}
+.glass,.row,.big,.kv>div,.chip,.log,.lbl,.ip,.seg,.gl,.mod,.hl,.card>h2{text-shadow:var(--sh,none)}
+.glass,.row,.big,.kv>div,.chip,.log,.top>div:first-child,.lbl,.ip,.seg,.gl{color:var(--ink)}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden;background:transparent}
+body{font-family:"Inter","Segoe UI Variable Display","Segoe UI",system-ui,sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased;user-select:none}
+/* ===== SOLO PARA LA CAPTURA: simula el fondo real del escritorio con acrílico de Windows =====
+   En el programa real este bloque NO existe: la ventana es transparente y Windows pone detrás tu escritorio. */
+#wall{position:fixed;inset:0;width:100vw;height:100vh;z-index:-2}
+.acrylic{position:fixed;inset:0;z-index:-1;backdrop-filter:blur(var(--blur,3px)) saturate(190%);background:rgba(var(--tint),var(--ta,.3))}
+/* ===== cristal ===== */
+.glass{position:relative;border-radius:var(--r);
+  background:linear-gradient(140deg,rgba(255,255,255,calc(var(--a)*1.7)),rgba(255,255,255,var(--a)) 45%,rgba(255,255,255,calc(var(--a)*.55)));
+  box-shadow:0 1px 0 rgba(255,255,255,.38) inset,0 -1px 0 rgba(255,255,255,.06) inset,0 24px 50px -14px rgba(2,10,50,.5),0 4px 14px rgba(2,10,50,.2)}
+.glass::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1.2px;pointer-events:none;
+  background:linear-gradient(140deg,rgba(255,255,255,.8),rgba(255,255,255,.08) 36%,rgba(190,225,255,.4) 70%,rgba(255,255,255,.6));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude}
+.glass::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:radial-gradient(120% 70% at 0% 0%,rgba(255,255,255,.2),transparent 55%),radial-gradient(90% 50% at 100% 100%,rgba(160,205,255,.14),transparent 60%)}
+.pill{border-radius:999px}
+.app{position:relative;display:grid;grid-template-columns:92px 1fr 350px;gap:18px;height:100vh;padding:20px}
+.rail{display:flex;flex-direction:column;gap:8px;border-radius:34px}
+.logo{width:46px;height:46px;border-radius:15px;background:linear-gradient(145deg,#8fd6ff,#2f6bff 60%,#7a45ff);display:grid;place-items:center;font-weight:800;font-size:20px;margin-bottom:12px;box-shadow:0 8px 20px rgba(47,107,255,.5),0 1px 0 rgba(255,255,255,.6) inset}
+.mod.on{color:var(--inkS)}.mod svg{width:26px;height:26px;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.lens{position:absolute;top:0;height:46px;border-radius:18px;z-index:0;background:linear-gradient(145deg,rgba(255,255,255,.4),rgba(255,255,255,.14));box-shadow:0 1px 0 rgba(255,255,255,.75) inset,0 10px 20px rgba(2,10,50,.3);will-change:transform,height}
+.sp{flex:1;min-height:0}
+.main{display:flex;flex-direction:column;gap:16px;min-width:0}
+.top{display:flex;align-items:center;gap:14px;padding:9px 12px 9px 24px}
+.hl{display:grid;flex:none;min-width:300px}.hl>*{grid-area:1/1;align-self:center}#ttl{opacity:0;pointer-events:none;white-space:nowrap}.top>div:first-child{min-width:0;white-space:nowrap}.top small{overflow:hidden;text-overflow:ellipsis}.top h1{font-size:21px;font-weight:700;letter-spacing:-.02em}.top small{display:block;font-size:12px;color:var(--ink3)}
+/* ===== segmentado líquido ===== */
+.seg{position:relative;display:flex;padding:4px;border-radius:999px;background:var(--field);box-shadow:0 1px 4px rgba(0,0,0,.16) inset}
+.seg button{white-space:nowrap;position:relative;z-index:2;border:0;background:none;color:var(--ink2);font:600 13px Inter,system-ui;padding:10px 20px;border-radius:999px;cursor:pointer;transition:color .35s}
+.seg button.on{color:var(--inkS)}
+.thumb{position:absolute;top:4px;bottom:4px;z-index:1;border-radius:999px;will-change:left,width,transform;
+  background:linear-gradient(180deg,rgba(255,255,255,.46),rgba(255,255,255,.18));
+  box-shadow:0 1px 0 rgba(255,255,255,.85) inset,0 -6px 10px rgba(120,180,255,.22) inset,0 8px 16px rgba(2,10,50,.3)}
+.thumb::before{content:"";position:absolute;inset:1px;border-radius:inherit;background:radial-gradient(60% 90% at var(--hx,30%) 0%,rgba(255,255,255,.55),transparent 70%);opacity:.7}
+.btn{border:0;cursor:pointer;color:#fff;font:700 14px Inter,system-ui;padding:12px 22px;border-radius:999px;position:relative;overflow:hidden}
+.btn.pri{background:linear-gradient(180deg,#3d9bff,#0a84ff);box-shadow:0 1px 0 rgba(255,255,255,.55) inset,0 10px 24px rgba(10,132,255,.45)}
+.btn.ok{background:linear-gradient(180deg,#4de27f,#30d158);box-shadow:0 1px 0 rgba(255,255,255,.55) inset,0 10px 24px rgba(22,185,92,.4)}
+.btn.soft{background:var(--chipbg);color:var(--ink);box-shadow:0 1px 0 rgba(255,255,255,.42) inset}
+.ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,.55);pointer-events:none}
+/* ===== páginas ===== */
+.stage{position:relative;flex:1;min-height:0}
+.page{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;gap:16px;align-content:stretch}
+.page>.glass{min-height:0}
+.card{padding:22px 24px;display:flex;flex-direction:column;gap:12px;will-change:transform,opacity,filter}
+.card h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);font-weight:700}
+.row,.card>h2{transition:--plate .8s;background:var(--plate,transparent);border-radius:12px}
+.row{display:flex;align-items:center;gap:14px;padding:11px 0;border-top:1px solid var(--line)}
+.row.f{border-top:0}
+.row .t{flex:1;min-width:0}.row .t b{font-weight:600;font-size:15px}.row .t span{display:block;font-size:12px;color:var(--ink3);margin-top:2px}
+.dot{width:12px;height:12px;border-radius:50%;background:var(--green);box-shadow:0 0 14px var(--green);flex:none}.dot.w{background:var(--amber);box-shadow:0 0 14px var(--amber)}.dot.n{background:rgba(255,255,255,.3);box-shadow:none}
+.chip{display:inline-flex;align-items:center;gap:8px;padding:7px 14px;border-radius:999px;background:var(--chipbg);font-size:12px;font-weight:600;box-shadow:0 1px 0 rgba(255,255,255,.38) inset}
+.ip{font-size:40px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.inp{width:100%;padding:12px 16px;border-radius:16px;border:0;background:var(--field);box-shadow:0 1px 4px rgba(0,0,0,.14) inset;color:var(--ink);font:500 14px Inter,system-ui;outline:0}
+.lbl{font-size:11px;letter-spacing:.1em;color:var(--ink3);font-weight:700;margin-bottom:5px}
+/* interruptor líquido: perilla de cristal que se estira */
+.tg{position:relative;width:60px;height:36px;border-radius:999px;background:var(--field);cursor:pointer;flex:none;box-shadow:0 1px 4px rgba(0,0,0,.3) inset;transition:background .5s}
+.tg.on{background:linear-gradient(180deg,#4de27f,#30d158)}
+.tg i{position:absolute;top:3px;left:3px;height:30px;width:42px;border-radius:999px;background:linear-gradient(180deg,#fff,rgba(228,240,255,.92));box-shadow:0 1px 0 #fff inset,0 5px 11px rgba(0,20,80,.4);will-change:left,width}
+/* ===== actividad ===== */
+.act{display:flex;flex-direction:column;gap:14px;padding:24px;border-radius:38px}
+.big{font-size:64px;font-weight:800;letter-spacing:-.04em;line-height:1;font-variant-numeric:tabular-nums}.big small{font-size:26px;color:var(--ink3);font-weight:600}
+.tank{position:relative;height:150px;border-radius:30px;overflow:hidden;background:rgba(0,12,70,.3);box-shadow:0 2px 8px rgba(0,0,0,.3) inset,0 1px 0 rgba(255,255,255,.22)}
+.tank svg{position:absolute;inset:0;width:100%;height:100%}
+.tank .lb{position:absolute;left:22px;bottom:16px;font-weight:700;text-shadow:0 2px 8px rgba(0,20,80,.5)}.tank .lb span{display:block;font-size:12px;color:rgba(255,255,255,.85);font-weight:500}
+.tank .shine{position:absolute;inset:0;border-radius:inherit;background:linear-gradient(115deg,rgba(255,255,255,.32),transparent 32%);pointer-events:none}
+.kv{display:grid;grid-template-columns:1.3fr 1fr;gap:12px 16px}.kv label{font-size:11px;letter-spacing:.12em;color:var(--ink3);font-weight:700}.kv b{display:block;white-space:nowrap;font-size:18px;font-weight:700;margin-top:2px}
+.log{flex:1;min-height:0;overflow:hidden;border-radius:22px;padding:14px 16px;background:var(--field);font:500 12px/1.65 "JetBrains Mono",ui-monospace,Consolas,monospace;color:var(--ink);box-shadow:0 2px 8px rgba(0,0,0,.16) inset}
+.log .ok{color:var(--okc,var(--green))}.log .w{color:var(--wc,var(--amber))}.log .t{color:var(--ink3)}
+.gl{flex:none;position:relative;display:flex;align-items:center;gap:12px;height:44px;padding:0 16px 0 14px;border-radius:999px;background:var(--chipbg);box-shadow:0 1px 0 rgba(255,255,255,.4) inset;cursor:pointer;overflow:hidden;font:600 13px Inter,system-ui;color:var(--ink);white-space:nowrap;will-change:width}
+.gl svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.7;flex:none}
+.gl .ex{display:flex;align-items:center;gap:12px;opacity:0;pointer-events:none}
+.gl.open .ex{pointer-events:auto}
+.gl .mode{display:flex;gap:2px;padding:3px;border-radius:999px;background:var(--field)}
+.gl .mode b{padding:6px 12px;border-radius:999px;font-weight:600;font-size:12px;color:var(--ink2)}.gl .mode b.on{background:rgba(255,255,255,.5);color:#0b1b3a}
+.range{-webkit-appearance:none;appearance:none;width:150px;height:8px;border-radius:99px;background:var(--field);outline:0}
+.range::-webkit-slider-thumb{-webkit-appearance:none;width:26px;height:20px;border-radius:99px;background:linear-gradient(180deg,#fff,#dcecff);box-shadow:0 3px 8px rgba(0,20,80,.4)}
+
+.railw{position:relative}
+.rail{position:absolute;top:0;bottom:0;left:0;width:92px;z-index:30;align-items:stretch;padding:16px 0;overflow:hidden}
+.rbg{position:absolute;inset:0;z-index:-1;border-radius:inherit;opacity:0;backdrop-filter:blur(30px) saturate(170%);background:rgba(var(--tint),.42)}
+.rail .logo{align-self:flex-start;margin-left:23px;flex:none;margin-bottom:6px}
+.mods{flex:1;position:relative;display:flex;flex-direction:column;gap:4px;padding:0 18px;min-height:0}
+.mod{display:flex;align-items:center;gap:14px;width:100%;height:46px;flex:none;border-radius:17px;overflow:hidden;white-space:nowrap;position:relative;z-index:1;cursor:pointer;color:var(--ink2)}
+.mod svg{flex:none;margin-left:15px}
+.mod .nm{font:600 15px Inter,system-ui;opacity:0}
+.lens{left:18px;right:18px;width:auto}
+.mod.on{color:var(--inkS)}
+
+.dot.e{background:var(--red);box-shadow:0 0 14px var(--red)}
+.dot.r{background:var(--amber);box-shadow:0 0 14px var(--amber);animation:pulso 1s ease-in-out infinite}@keyframes pulso{50%{opacity:.3}}
+.btn{white-space:nowrap}.btn[disabled]{opacity:.45;pointer-events:none}
+.lista{display:flex;flex-direction:column;overflow:auto;min-height:0;flex:1}
+.lista::-webkit-scrollbar,.log::-webkit-scrollbar,.dtxt::-webkit-scrollbar{width:8px}.lista::-webkit-scrollbar-thumb,.log::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}
+.log{overflow:auto}.log .e{color:var(--red)}
+.fila:hover{background:var(--chipbg)}
+.toast{position:fixed;left:50%;bottom:34px;transform:translateX(-50%);padding:14px 22px;z-index:99;font:600 14px Inter,system-ui;border-radius:999px}
+#ov{position:fixed;inset:0;z-index:80;display:none;place-items:center;background:rgba(2,8,30,.32);backdrop-filter:blur(7px)}#ov.on{display:grid}
+.dlg{width:470px;max-width:92vw;padding:24px;display:flex;flex-direction:column;gap:12px;border-radius:30px;--a:.34}
+.dlg h2{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);font-weight:700}
+.dtxt{white-space:pre-wrap;font-size:14px;color:var(--ink2);max-height:300px;overflow:auto;line-height:1.5}
+textarea.inp,select.inp{font:500 14px Inter,system-ui}select.inp option{color:#111}
+.page>.glass{overflow:hidden}.row .btn{flex:none}
+</style></head><body>
+<canvas id="wall"></canvas><div id="ov"></div><div class="acrylic" id="acr"></div>
+<div class="app">
+  <div class="railw"><nav class="rail glass" id="rail"><i class="rbg"></i><div class="logo">M</div><div class="mods" id="mods"><div class="lens" id="lens"></div><div class="mod on" data-n="Migración"><svg viewBox="0 0 24 24"><path d="M4 7h11M4 12h16M4 17h8"/><path d="m16 5 3 2-3 2"/></svg><span class="nm">Migración</span></div><div class="mod" data-n="Nuevo servicio"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v8M8 12h8"/></svg><span class="nm">Nuevo servicio</span></div><div class="mod" data-n="Impresoras y fuentes"><svg viewBox="0 0 24 24"><path d="M7 9V4h10v5"/><rect x="4" y="9" width="16" height="8" rx="2.5"/><path d="M7 14h10v6H7z"/></svg><span class="nm">Impresoras y fuentes</span></div><div class="mod" data-n="Monitores"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2.5"/><path d="M8 20h8M12 16v4"/></svg><span class="nm">Monitores</span></div><div class="mod" data-n="Programas"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/><circle cx="19" cy="18" r="2"/></svg><span class="nm">Programas</span></div><div class="mod" data-n="Reportes"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"/><path d="M8 8h8M8 12h8M8 16h5"/></svg><span class="nm">Reportes</span></div><div class="mod" data-n="Liberar PC vieja"><svg viewBox="0 0 24 24"><path d="M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13"/><path d="M10 11v6M14 11v6"/></svg><span class="nm">Liberar PC vieja</span></div><div class="mod" data-n="Diagnóstico"><svg viewBox="0 0 24 24"><path d="M4 12h4l2-6 4 12 2-6h4"/></svg><span class="nm">Diagnóstico</span></div><div class="mod" data-n="Actualizaciones"><svg viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1-.5-7.97A6 6 0 0 1 18 9a4.5 4.5 0 0 1-.5 9z"/><path d="M12 11v6m0 0-2.5-2.5M12 17l2.5-2.5"/></svg><span class="nm">Actualizaciones</span></div><div class="sp"></div><div class="mod" data-n="Ajustes"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg><span class="nm">Ajustes</span></div></div></nav></div>
+  <section class="main">
+    <header class="top glass pill">
+      <div class="hl" id="hl"><div class="seg" id="rseg"><div class="thumb" id="rthumb"></div><button class="on">PC nueva</button><button>PC vieja</button><button>Relación</button></div><div id="ttl"><h1></h1><small></small></div></div><div style="flex:1"></div>
+      <div class="gl" id="gl"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></svg><span id="glt">Cristal</span><div class="ex"><div class="mode" id="mode"><b class="on">Transparente</b><b>Sólido</b></div><input class="range" id="rng" type="range" min="0" max="60" value="4"><span id="rv" style="min-width:30px">18%</span></div></div>
+      <div class="seg" id="seg" style="transform-origin:right center"><div class="thumb" id="thumb"></div><button class="on">1 · Recibir</button><button>2 · Dominio</button><button>3 · Final</button></div>
+    </header>
+    <div class="stage" id="stage"></div>
+    </section>
+  <aside class="glass act">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><h2 style="font-size:12px;letter-spacing:.14em;color:var(--ink3);text-transform:uppercase">Actividad</h2><span class="chip" id="actchip"><i class="dot n"></i>Listo</span></div>
+    <div class="big"><span id="pct">0</span><small>%</small></div>
+    <div class="tank"><svg id="sv" viewBox="0 0 310 150" preserveAspectRatio="none"><defs><linearGradient id="g1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6fdcff"/><stop offset=".6" stop-color="#2d71ff"/><stop offset="1" stop-color="#4b3be2"/></linearGradient></defs><path id="w2" fill="rgba(140,225,255,.5)"/><path id="w1" fill="url(#g1)"/></svg>
+      <div class="lb" id="tkl">—<span></span></div><div class="shine"></div></div>
+    <div class="kv"><div><label>ARCHIVOS</label><b id="kva">—</b></div><div><label>VELOCIDAD</label><b id="kvv">—</b></div><div><label>RESTANTE</label><b id="kvr">—</b></div></div>
+    <div class="log" id="log"></div>
+    <button class="btn soft" id="cancel" data-act="cancelar" style="color:var(--red)" disabled>Cancelar</button>
+  </aside>
+</div>
+<script>
+/* ---------- resorte físico ---------- */
+function spring(k=170,c=15){ // devuelve función de actualización por fotograma
+  return {x:0,v:0,t:0,k,c,step(dt){const a=-this.k*(this.x-this.t)-this.c*this.v;this.v+=a*dt;this.x+=this.v*dt;return this.x},rest(){return Math.abs(this.v)<.02&&Math.abs(this.x-this.t)<.05}}
+}
+const loop=new Set();let last=performance.now();
+function tick(n){const dt=Math.min(.032,(n-last)/1000);last=n;loop.forEach(f=>f(dt));requestAnimationFrame(tick)}requestAnimationFrame(tick);
+// easing "linear()" generado desde un resorte real (para animaciones web)
+function springEasing(k=170,c=14,n=48){let x=0,v=0,pts=[];const T=1.1;for(let i=0;i<=n;i++){pts.push(x.toFixed(4));const dt=T/n;for(let s=0;s<8;s++){const a=-k*(x-1)-c*v;v+=a*dt/8;x+=v*dt/8}}return `linear(${pts.join(',')})`}
+const EASE=springEasing(150,13),EASE_SOFT=springEasing(110,15);
+
+/* ---------- lente del menú: estirar y comprimir ---------- */
+const mods=[...document.querySelectorAll('#mods .mod')],lens=document.getElementById('lens');
+const ly=spring(210,17),lh=spring(210,17);let lensOn=0;
+ly.x=ly.t=0;lh.x=lh.t=46;
+loop.add(dt=>{ly.step(dt);lh.step(dt);lens.style.transform=`translateY(${ly.x}px)`;lens.style.height=Math.max(40,lh.x)+'px';lens.style.borderRadius=Math.min(26,18+Math.abs(lh.x-46)/6)+'px'});
+function setMod(i){const top=mods[i].offsetTop-mods[0].offsetTop;const d=Math.abs(top-ly.t);ly.t=top;
+  // el borde delantero se adelanta: se estira durante el viaje y vuelve
+  lh.x=46+Math.min(70,d*.6);lh.v=0;lh.t=46;mods.forEach((m,k)=>m.classList.toggle('on',k===i))}
+mods.forEach((m,i)=>m.addEventListener('click',()=>{setMod(i);showModule(i)}));
+
+/* ---------- segmentado líquido (dos bordes con rigidez distinta) ---------- */
+const seg=document.getElementById('seg'),thumb=document.getElementById('thumb'),bs=[...seg.querySelectorAll('button')];
+const sl=spring(260,20),sr=spring(120,15);
+loop.add(dt=>{sl.step(dt);sr.step(dt);const w=sr.x-sl.x;thumb.style.left=sl.x+'px';thumb.style.width=Math.max(40,w)+'px';
+  const stretch=Math.max(0,w-bs[cur].offsetWidth);thumb.style.transform=`scaleY(${1-Math.min(.1,stretch/900)})`;thumb.style.setProperty('--hx',(30+stretch/2)+'%')});
+let cur=0;
+function segTo(i,dir){const b=bs[i];if(dir>0){sr.t=b.offsetLeft+b.offsetWidth;sl.t=b.offsetLeft}else{sl.t=b.offsetLeft;sr.t=b.offsetLeft+b.offsetWidth}
+  cur=i;bs.forEach((x,k)=>x.classList.toggle('on',k===i))}
+function segInit(){const b=bs[0];sl.x=sl.t=b.offsetLeft;sr.x=sr.t=b.offsetLeft+b.offsetWidth}
+
+/* =====================================================================
+   Mainbit Toolkit · capa de datos reales (puente con Python)
+   ===================================================================== */
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const PY=()=>window.pywebview&&window.pywebview.api;
+let S=null,D={},F={},LOGS=[],LOGGEN=-1,BRIDGE=false;
+const sv=(k,d='')=>(S&&S.v&&S.v[k]!=null)?S.v[k]:d;
+const wt=(k,d='')=>(S&&S.w&&S.w[k]&&S.w[k].text!=null)?S.w[k].text:d;
+const fin=k=>(S&&S.fin&&S.fin[k])||{};
+const lock=()=>S&&S.ocupado;
+const T=(on,attr)=>`<div class="tg ${on?'on':''}" ${attr}><i></i></div>`;
+const TV=v=>T(!!sv(v),`data-var="${v}"`);
+const TF=k=>T(!!F[k],`data-f="${k}" data-bool="1"`);
+const dotc=n=>n==='ok'?'':n==='err'?'e':n==='run'?'r':n==='warn'?'w':n==='info'?'':'n';
+const DOT=n=>`<i class="dot ${dotc(n)}"></i>`;
+const B=(txt,act,o={})=>`<button class="btn ${o.c||'soft'}" data-act="${act}" ${o.args?`data-args='${esc(JSON.stringify(o.args))}'`.replace(/&quot;/g,'&quot;'):''} ${o.lock&&lock()?'disabled':''} style="${o.s||''}">${txt}</button>`;
+const SB=(txt,act,o={})=>B(txt,act,Object.assign({s:'padding:8px 16px;font-size:12px'},o));
+const VAR=(k,o={})=>`<input class="inp" ${o.pw?'type="password"':''} data-var="${k}" value="${esc(sv(k))}" placeholder="${esc(o.ph||'')}" autocomplete="off" spellcheck="false">`;
+const VARPW=(k,ph)=>`<input class="inp" type="password" data-pw="${k}" placeholder="${S&&S.v['tiene_'+k]?'•••••••• (guardada)':esc(ph||'')}" autocomplete="off">`;
+const FI=(k,o={})=>`<input class="inp" ${o.pw?'type="password"':''} data-f="${k}" value="${esc(F[k]==null?'':F[k])}" placeholder="${esc(o.ph||'')}" autocomplete="off" spellcheck="false">`;
+const ROW=(first,dot,tit,sub,right='')=>`<div class="row ${first?'f':''}">${dot||''}<div class="t"><b>${tit}</b>${sub!==''&&sub!=null?`<span>${sub}</span>`:''}</div>${right}</div>`;
+const FILA=(first,k,tit,btn)=>{const f=fin(k);return ROW(first,DOT(f.nivel),tit,esc(f.text||'Sin revisar'),btn||'')};
+const G=(...c)=>`<div class="glass card">${c.join('')}</div>`;
+const H2=t=>`<h2>${t}</h2>`;
+const FLEX='<div style="flex:1"></div>';
+const LBL=t=>`<div class="lbl" style="margin-top:4px">${t}</div>`;
+const sub=(t)=>`<div style="font-size:12px;color:var(--ink3)">${t}</div>`;
+const cargando='<div style="color:var(--ink3);font-size:13px;padding:8px 0">Cargando…</div>';
+
+/* ---------- páginas de PC nueva ---------- */
+function P0(){const i=S&&S.info||{},v=S&&S.vieja,ips=(S&&S.ips)||[],cable=ips.find(x=>x.cable)||ips[0];
+ return [G(H2('Este equipo'),
+   ROW(1,DOT(i.admin?'ok':'err'),esc(((i.fabricante||'')+' '+(i.modelo||'')).trim()||'Equipo'),`Serie CPU ${esc(sv('v_serie','—')||'—')}${i.serie_fuente?' · '+esc(i.serie_fuente):''}`,`<span class="chip">${i.admin?'Administrador':'Sin permisos de administrador'}</span>`),
+   H2('Recibir de la PC vieja'),LBL('IP DE ESTE EQUIPO (CABLE)'),
+   cable?`<div class="ip" style="color:var(--accent)">${esc(cable.ip)}</div>${sub(cable.cable?'← escribe esta en la PC vieja':esc(cable.etq))}`:`<div class="ip" style="color:var(--wc,#ff9f0a);font-size:22px">Sin IP: conecta el cable</div>`,
+   ips.filter(x=>x!==cable).map(x=>sub(esc(x.etq)+': '+esc(x.ip))).join(''),
+   ROW(0,'','Carpeta de destino',esc(S?S.destino:''),SB('Cambiar','cambiar_destino')),
+   ROW(0,'','Siguiente paso',esc(wt('lbl_banner','—'))),FLEX,
+   B(lock()?'Receptor activo…':'Activar receptor','iniciar_receptor',{c:'pri',s:'padding:15px',lock:1})),
+  G(H2('PC vieja detectada'),
+   v?ROW(1,DOT('ok'),esc(v.host||'PC vieja'),'usuario en sesión: '+esc(v.usuario||'—')):ROW(1,DOT(''),'Esperando a la PC vieja','Pulsa «Activar receptor» y envía desde la otra PC'),
+   v?ROW(0,'','Serie CPU',esc(v.serie||'—')):'',
+   v?ROW(0,'','Monitor (confirma con la etiqueta)',esc((v.monitores||[]).map(m=>m.serie).filter(Boolean).join(', ')||'—')):'',
+   v?ROW(0,'','Programas instalados recibidos',`${S.n_prog_vieja} programas`):'',
+   v?ROW(0,'','Impresoras recibidas',`${S.n_imp_vieja} impresoras`):'',
+   H2('Cable directo'),
+   ROW(1,'','IP fija 192.168.77.2','Solo si el cable no obtiene IP sola',TV_ipfija())) ];}
+function TV_ipfija(){return `<div class="tg ${S&&S.ip_fija?'on':''}" data-act="toggle_ip_fija" data-args='["192.168.77.2"]'><i></i></div>`}
+function P1(){const net=['f_red','f_dns','f_dc','f_hora'].map((k,j)=>{const w=(S&&S.w[k])||{};return ROW(j==0,DOT(w.nivel),['Conexión de red','DNS','Controlador de dominio','Hora'][j],esc(w.text||'Sin verificar'),j==3?SB('Sincronizar','sincronizar_hora'):'')}).join('');
+ return [G(H2('Nombre del equipo'),`<div class="ip" style="color:var(--accent)">${esc(S?S.hostname:'—')}</div>${sub(esc(wt('lbl_host_ok')))}`,
+   LBL('BASE DEL NOMBRE'),VAR('v_base'),ROW(0,'','Separar con guion medio','124-M-D2-43H47 (como el manual)',TV('v_guion')),
+   H2('Red corporativa'),LBL('WIFI (SSID)'),VAR('v_ssid'),LBL('CLAVE WIFI'),VARPW('v_pass_wifi'),
+   `<div style="display:flex;gap:12px;margin-top:6px">${B('Conectar WiFi','conectar_wifi',{s:'flex:1'})}${B('Verificar red','verificar_red',{s:'flex:1'})}</div>`),
+  G(H2('Estado de la red'),net,H2('Unir al dominio'),sub('Dominio: '+esc((S&&S.cfg.dominio)||'(vacío: ábrelo en Ajustes)')),LBL('USUARIO'),VAR('v_user_dom'),LBL('CONTRASEÑA'),VARPW('v_pass_dom'),
+   ROW(0,'','Recordar en esta USB','credenciales.ini · texto plano · se borra al terminar',TV('v_recordar')),FLEX,
+   `<div style="display:flex;gap:12px">${B('Solo renombrar','solo_renombrar',{s:'flex:1',lock:1})}${B('Unir al dominio','unir_dominio',{c:'pri',s:'flex:1.4',lock:1})}</div>`)];}
+function P2(){const b=(t,a)=>SB(t,a);
+ return [G(H2('Lista final'),
+   FILA(1,'dominio','Equipo en el dominio',b('Revisar','chk_dominio')),FILA(0,'ivanti','Agente IVANTI',b('Revisar','chk_ivanti')),
+   FILA(0,'politicas','Políticas aplicadas',b('Aplicar','chk_politicas')),FILA(0,'fuentes','Tipografías',b('Instalar','accion_fuentes')),
+   FILA(0,'impresora','Impresora de red',b('Conectar','chk_impresora')),FILA(0,'impvieja','Impresoras de la PC vieja',b('Clonar','chk_clonar_impresoras')),
+   FILA(0,'datos','Datos al perfil del usuario',b('Restaurar','abrir_restaurar')),FLEX,
+   B('Manual para el usuario (dónde quedó todo)','generar_manual',{s:'margin-bottom:10px'}),
+   `<div style="display:flex;gap:12px">${B('Ejecutar todo','ejecutar_todo',{c:'pri',s:'flex:1',lock:1})}${B('Generar evidencia','generar_evidencia',{c:'ok',s:'flex:1'})}</div>`),
+  G(H2('Registro en la relación'),LBL('NOMBRE(S)'),VAR('r_nombre'),LBL('APELLIDO(S)'),VAR('r_apellido'),LBL('TIPO'),VAR('r_tipo'),
+   LBL('SERIE CPU ANTERIOR'),VAR('r_cpu_a'),LBL('SERIE MONITOR ANTERIOR'),VAR('r_mon_a'),sub(esc(wt('lbl_faltan'))),FLEX,
+   `<div style="display:flex;gap:12px">${B('Elegir pendiente','pedir_pendiente',{s:'flex:1'})}${B('Guardar en la relación','guardar_relacion',{c:'ok',s:'flex:1.4'})}</div>`,
+   B('Terminar servicio · nuevo equipo','terminar_servicio',{s:'color:var(--red)'}))];}
+const mk=f=>({toString(){try{return f().join('')}catch(e){return '<div class="glass card"><h2>Error</h2>'+esc(e)+'</div>'}}});
+const PAGES=[mk(P0),mk(P1),mk(P2)];
+
+/* ---------- PC vieja ---------- */
+function PV(){const i=S&&S.info||{};
+ return [G(H2('Esta PC (vieja)'),ROW(1,DOT(i.admin?'ok':'err'),esc(i.host||'Equipo'),`Serie CPU ${esc(sv('v_serie_v','—'))}`,`<span class="chip">${i.admin?'Administrador':'Sin admin'}</span>`),
+   LBL('SERIE CPU (CONFIRMA CON LA ETIQUETA)'),VAR('v_serie_v'),LBL('SERIE DEL MONITOR (ETIQUETA)'),VAR('v_monitor_v'),
+   LBL('IP DE LA PC NUEVA'),VAR('v_ip',{ph:'169.254.…'}),
+   ROW(0,'','IP fija 192.168.77.1','Solo si «Auto-buscar» no encuentra la PC nueva',`<div class="tg ${S&&S.ip_fija?'on':''}" data-act="toggle_ip_fija" data-args='["192.168.77.1"]'><i></i></div>`),FLEX,
+   `<div style="display:flex;gap:12px">${B('Auto-buscar','buscar',{s:'flex:1'})}${B('Analizar','accion_emisor',{args:[true],s:'flex:1',lock:1})}${B('Enviar a la PC nueva','accion_emisor',{c:'pri',args:[false],s:'flex:1.6',lock:1})}</div>`),
+  G(H2('Qué se envía'),ROW(1,'','Perfiles de usuario (C:\\Users)','Escritorio, Documentos, Descargas…',TV('v_users')),
+   ((S&&S.unidades)||[]).map(u=>ROW(0,'',esc(u.titulo),esc(u.det),`<div class="tg ${sv('u_'+u.letra)?'on':''}" data-var="u_${esc(u.letra)}"><i></i></div>`)).join(''),
+   ((S&&S.extra)||[]).map((p,k)=>ROW(0,'',esc(p.split(/[\\/]/).pop()||p),esc(p),SB('Quitar','quitar_extra',{args:[k]}))).join(''),
+   `<div style="display:flex;gap:12px;margin-top:4px">${SB('+ Carpeta','add_carpeta')}${SB('+ Archivos','add_archivos')}</div>`,
+   ROW(0,'','Omitir cachés y temporales','Navegadores y temporales: no hace falta migrarlos',TV('v_cache')),
+   S&&S.avisos_unidades?sub('⚠ '+esc(S.avisos_unidades)):'',FLEX,
+   sub(esc(wt('lbl_banner'))))];}
+
+/* ---------- Relación ---------- */
+function PR(){const r=(S&&S.rel)||{filas:[],hechos:0,incompletos:0,pendientes:0};
+ const filas=r.filas.map((f,i)=>({f,i}));
+ const lista=filas.length?filas.map(({f,i},k)=>`<div class="row ${k?'':'f'} fila" data-edit="${i}" style="cursor:pointer">${DOT(f.Estado==='Hecho'?'ok':f.Estado==='Pendiente'?'':'warn')}<div class="t"><b>${esc(f.Hostname||f['Serie cpu Nuevo']||'Sin equipo')}</b><span>${esc((f['Usuario Nombre']+' '+f.Apellido).trim()||'—')}${f.Estado!=='Hecho'?' · '+esc(f.Estado):''}</span></div></div>`).join(''):ROW(1,'','Aún no hay equipos','Importa una tabla o pega los usuarios pendientes');
+ return [`<div class="glass card"><h2>Relación de equipos</h2><div class="lista">${lista}</div>${FLEX}<div style="display:flex;gap:10px">${B('Importar','pedir_importar',{s:'flex:1'})}${B('Pegar pendientes','pedir_pegar',{s:'flex:1.3'})}${B('Abrir carpeta','abrir_ruta',{args:[(r.ruta||'').replace(/[\\/][^\\/]*$/,'')],s:'flex:1.2'})}</div></div>`,
+  G(H2('Resumen del servicio'),`<div class="kv"><div><label>EQUIPOS</label><b>${filas.length}</b></div><div><label>HECHOS</label><b>${r.hechos}</b></div><div><label>INCOMPLETOS</label><b>${r.incompletos}</b></div><div><label>PENDIENTES</label><b>${r.pendientes}</b></div></div>`,
+   sub('Se guarda sola en RELACION_EQUIPOS.xlsx junto al programa.'),FLEX,B('Abrir el Excel','abrir_ruta',{args:[r.ruta||''],s:'padding:15px'}))];}
+const ROLEHTML=[null,mk(PV),mk(PR)];
+
+/* ---------- Módulos ---------- */
+const WZ=()=>[G(H2('Servicio'),LBL('CLIENTE / PROYECTO'),FI('empresa'),
+   `<div style="display:flex;gap:12px"><div style="flex:1">${LBL('TIPO DE EQUIPO')}${FI('tipo_defecto')}</div></div>`,
+   LBL('DOMINIO'),FI('dominio'),LBL('USUARIO DE DOMINIO'),FI('usuario_dominio'),LBL('IMPRESORA DE RED (VACÍO = NINGUNA)'),FI('impresora',{ph:'\\\\\\\\ip\\\\nombre'}),
+   ROW(0,'','Varias migraciones a la vez','La USB se queda en la PC vieja; la PC nueva comparte la app por el cable',`<span class="chip">Automático</span>`),FLEX,
+   ROW(0,'','Tabla de equipos de versiones anteriores','CSV o Excel · se suma a la relación sin pisar nada',SB('Importar…','pedir_importar')),
+   B('Empezar servicio','wizard_empezar',{c:'pri',s:'padding:15px'})),
+  G(H2('Red de inicio (WiFi)'),LBL('NOMBRE DE LA RED (SSID)'),FI('wifi_ssid'),LBL('CLAVE'),FI('wifi_clave',{pw:1,ph:F.pin_guardado?'(usa tu PIN para la guardada)':''}),
+   ROW(0,DOT('ok'),'Seguridad detectada','WPA2 / WPA3 · automática'),
+   F.pin_disponible?LBL('PIN PARA RECORDAR LA CLAVE (OPCIONAL)')+FI('pin',{pw:1}):sub('Guardar clave cifrada no disponible en este equipo.'),
+   sub('La clave se guarda cifrada con tu PIN, nunca en texto plano ni en GitHub.'),FLEX,
+   `<div style="display:flex;gap:12px">${B('Verificar red','verificar_red',{s:'flex:1'})}${B('Conectar WiFi','wizard_wifi',{c:'pri',s:'flex:1.4'})}</div>`)];
+const IMPF=()=>{const l=(S&&S.impresoras_vieja)||[];
+ return [G(H2('Impresoras de la PC vieja'),l.length?l.map((p,i)=>ROW(!i,DOT(p.red||p.host?'ok':'warn'),esc(p.nombre),esc((p.red?'de red':p.host?'IP '+p.host:'local')+(p.driver?' · '+p.driver:'')+(p.predeterminada?' · predeterminada':'')))).join(''):ROW(1,DOT(''),'Sin datos de la PC vieja','Se reciben cuando la PC vieja se conecta'),
+   sub(esc(fin('impvieja').text||'')),FLEX,B('Clonar en esta PC','chk_clonar_impresoras',{c:'pri',s:'padding:15px',lock:1})),
+  G(H2('Tipografías'),FILA(1,'fuentes','Noto Sans y Patria',SB('Instalar','accion_fuentes')),LBL('DIRECCIÓN DE DESCARGA (.ZIP)'),FI('fuentes_url',{ph:'https://…/tipografias.zip'}),
+   sub('Se bajan con reintentos, se extraen y se instalan para todos los usuarios.'),FLEX,B('Bajar e instalar de internet','fuentes_web',{c:'pri',s:'padding:15px',lock:1}))];};
+const MONF=()=>{const m=(D.mon&&D.mon.monitores)||[];
+ return [G(H2('Monitores detectados'),m.length?m.map((x,i)=>ROW(!i,DOT(x.historico?'warn':'ok'),esc((x.fab||'')+' '+(x.modelo||'')),`Serie leída (EDID) ${esc(x.serie||'—')}${x.anio?' · año '+esc(x.anio):''}${x.historico?' · histórico':''}`)).join(''):ROW(1,DOT('warn'),'No se detectaron monitores','Conecta uno o reinicia el programa'),
+   LBL('SERIE DE LA ETIQUETA (LA QUE TIENE PEGADA)'),VAR('v_monitor'),sub('Muchos monitores traen otra serie impresa: se guardan las dos.'),FLEX,B('Guardar diagnóstico','diagnostico_monitores',{c:'pri',s:'padding:15px'})),
+  G(H2('Para qué sirve'),ROW(1,'','Compara la serie leída con la etiqueta','Si no coinciden, escribe la de la etiqueta arriba'),ROW(0,'','Diagnóstico completo','Guarda un archivo con los datos crudos del monitor (EDID)'))];};
+const PROGF=()=>{const p=D.prog;if(!p)return [G(H2('Programas'),cargando),G(H2(' '))];
+ return [G(H2('Faltan en esta PC ('+p.faltan.length+')'),p.hay_vieja?(p.faltan.length?`<div class="lista">${p.faltan.map((n,i)=>ROW(!i,DOT('warn'),esc(n),'')).join('')}</div>`:ROW(1,DOT('ok'),'No falta nada','Todo lo de la PC vieja ya está aquí')):ROW(1,DOT(''),'Aún no hay lista de la PC vieja','Se recibe al conectar la PC vieja'),FLEX,
+   `<div style="display:flex;gap:12px">${B('Actualizar','pedir_prog',{s:'flex:1'})}${B('Copiar lista','copiar_prog',{c:'pri',s:'flex:1.2'})}</div>`),
+  G(H2('Resumen'),`<div class="kv"><div><label>EN LA PC VIEJA</label><b>${p.viejos}</b></div><div><label>EN ESTA PC</label><b>${p.nuevos}</b></div><div><label>YA ESTÁN</label><b>${p.ya}</b></div><div><label>FALTAN</label><b>${p.faltan.length}</b></div></div>`,
+   sub('Compara por nombre; omite componentes del sistema y runtimes.'))];};
+const REPF=()=>{const r=D.rep;if(!r)return [G(H2('Reportes'),cargando),G(H2(' '))];
+ return [G(H2('Archivos generados'),r.archivos.length?`<div class="lista">${r.archivos.map((a,i)=>ROW(!i,'',esc(a.nombre),esc(a.carpeta+' · '+a.fecha),SB('Abrir','abrir_ruta',{args:[a.ruta]}))).join('')}</div>`:ROW(1,DOT(''),'Todavía no hay reportes','Se crean con «Generar evidencia» y «Terminar servicio»'),FLEX,B('Abrir la carpeta','abrir_ruta',{args:[r.ruta],s:'padding:15px'})),
+  G(H2('Servicio'),`<div class="kv"><div><label>EQUIPOS</label><b>${r.equipos}</b></div><div><label>HECHOS</label><b>${r.hechos}</b></div><div><label>INCOMPLETOS</label><b>${r.incompletos}</b></div><div><label>PENDIENTES</label><b>${r.pendientes}</b></div></div>`,FLEX,
+   B('Generar evidencia de este equipo','generar_evidencia',{c:'pri',s:'margin-bottom:10px'}),B('Manual para el usuario','generar_manual'))];};
+const LIBF=()=>{const l=D.lib||{};
+ return [G(H2('Liberar PC vieja'),ROW(1,DOT(S&&S.estado_flags.enviado?'ok':''),'Envío completado',S&&S.estado_flags.enviado?'Los datos se copiaron y verificaron':'Aún no se ha enviado desde esta PC'),
+   ROW(0,'','La app NUNCA borra nada','El borrado es un protocolo manual: espera 2 días y autorización del usuario'),sub(esc(wt('lbl_cierre'))),FLEX,B('Verificar y liberar','verificar_liberar',{c:'pri',s:'padding:15px'})),
+  G(H2('Protocolo'),ROW(1,'','1 · Confirmar con el usuario','Que ya tiene todo en la PC nueva'),ROW(0,'','2 · Esperar dos días','La PC vieja se conserva intacta'),ROW(0,'','3 · Quitar del dominio y borrar','Método según el disco (SSD: borrado seguro NIST 800-88)'),ROW(0,'','4 · Acta firmada','Se anota en la relación'))];};
+const DIAF=()=>{const i=S&&S.info||{};
+ return [G(H2('Estado del programa'),ROW(1,DOT(i.admin?'ok':'err'),'Permisos de administrador',i.admin?'elevado':'ábrelo como administrador'),ROW(0,DOT('ok'),'Versión',esc((S&&S.version)||'')),ROW(0,DOT(''),'Windows',esc(i.os||'')),ROW(0,DOT(i.unido?'ok':''),'Dominio',esc(i.unido?i.dominio:'No unido')),ROW(0,DOT(''),'Tareas activas',esc(((S&&S.tareas)||[]).join(', ')||'ninguna')),FLEX,
+   `<div style="display:flex;gap:12px">${B('Copiar informe para soporte','copiar_informe',{c:'pri',s:'flex:1'})}</div>`),
+  G(H2('Registro técnico'),`<div class="log" style="flex:1">${LOGS.slice(-60).map(x=>`<div class="${x.l==='ok'?'ok':x.l==='err'?'e':x.l==='warn'?'w':''}"><span class="t">${esc(x.h)}</span> ${esc(x.t)}</div>`).join('')||'<div class="t">Sin registros todavía</div>'}</div>`)];};
+const ACTF=()=>{const u=D.upd;
+ return [G(H2('Esta app'),ROW(1,DOT(u&&u.nueva?'warn':'ok'),'Versión '+esc((S&&S.version)||''),u?(u.ok?(u.nueva?'Hay una versión más nueva ('+esc(u.sha)+')':'Estás al día'):esc(u.msg)):'Pulsa «Buscar ahora»'),
+   ROW(0,'','Cómo se actualiza','Se descarga de GitHub y se aplica al reiniciar; tus datos no se tocan'),FLEX,
+   `<div style="display:flex;gap:12px">${B('Buscar ahora','buscar_upd',{s:'flex:1'})}${B('Actualizar y reiniciar','actualizar_ahora',{c:'pri',s:'flex:1.4',lock:1})}</div>`),
+  G(H2('Respaldo de datos'),ROW(1,'','Relación de equipos',esc(((S&&S.rel)||{}).ruta||'')),ROW(0,'','Configuración','config_mainbit.json: junto a la app y en ProgramData'),sub('Si la PC se reinstala, los ajustes se recuperan solos.'))];};
+const AJF=()=>{if(!F.aj)return [G(H2('Ajustes'),cargando),G(H2(' '))];const A_=(k,t)=>LBL(t)+`<input class="inp" data-f="aj.${k}" value="${esc(F.aj[k]==null?'':F.aj[k])}" autocomplete="off" spellcheck="false">`;
+ return [G(H2('General'),A_('unidad','UNIDAD ADMINISTRATIVA'),A_('empresa','EMPRESA (M = MAINBIT)'),A_('perfil','PERFIL (D2 / L2; VACÍO = DETECTAR)'),A_('tipo_defecto','TIPO POR DEFECTO EN LA RELACIÓN'),A_('limite_gb','LÍMITE DE MIGRACIÓN (GB)'),A_('destino_backup','CARPETA DE RESPALDO (PC NUEVA)')),
+  G(H2('Red y servicio'),A_('dominio','DOMINIO'),A_('usuario_dominio','USUARIO DE DOMINIO'),A_('impresora','IMPRESORA DE RED'),ROW(0,'','Instalar la impresora','Solo si el cliente la pide',T(!!F.aj.usar_impresora,'data-f="aj.usar_impresora" data-bool="1"')),A_('fuentes_dir','CARPETA DE TIPOGRAFÍAS'),A_('soporte_contacto','CONTACTO DE SOPORTE (SALE EN EL MANUAL)'),FLEX,B('Guardar ajustes','guardar_ajustes',{c:'pri',s:'padding:15px'}))];};
+const mod=(t,s,f)=>({t,s,get h(){try{return f().join('')}catch(e){return '<div class="glass card"><h2>Error</h2>'+esc(e)+'</div>'}}});
+const MODS=[null,
+ mod('Nuevo servicio','Todo preconfigurado con lo último que usaste',WZ),
+ mod('Impresoras y fuentes','La PC nueva queda con las mismas impresoras y tipografías',IMPF),
+ mod('Monitores','Serie real leída del monitor (EDID) frente a la etiqueta',MONF),
+ mod('Programas','Comparar la PC vieja con esta',PROGF),
+ mod('Reportes','Evidencias, cierres y resumen del servicio',REPF),
+ mod('Liberar PC vieja','La app no borra: verifica y libera',LIBF),
+ mod('Diagnóstico','Salud del programa y registro técnico',DIAF),
+ mod('Actualizaciones','Versión y actualización desde GitHub',ACTF),
+ mod('Ajustes','Datos del servicio y de la red',AJF)];
+const MODKEY=[null,'nuevo','imp','mon','prog','rep','lib','dia','upd','aj'];
+
+/* ---------- acciones locales (formularios y diálogos) ---------- */
+const LOCAL={
+ async wizard_empezar(){const r=await PY().datos('wizard_aplicar',[{empresa:F.empresa,tipo_defecto:F.tipo_defecto,dominio:F.dominio,usuario_dominio:F.usuario_dominio,impresora:F.impresora,wifi_ssid:F.wifi_ssid,wifi_clave:F.wifi_clave,pin:F.pin}]);
+   if(r&&!r.ok){toast(r.msg||'No se pudo aplicar');return}F.wifi_clave='';F.pin='';setMod(0);showModule(0);toast('Servicio listo: empieza por «Activar receptor»')},
+ async wizard_wifi(){const ssid=F.wifi_ssid||'',clave=F.wifi_clave||'';if(!ssid||!clave){toast('Escribe la red y la clave');return}
+   await PY().set_var('v_ssid',ssid);await PY().set_var('v_pass_wifi',clave);PY().act('conectar_wifi')},
+ async guardar_ajustes(){await PY().datos('ajustes_guardar',[F.aj]);toast('Ajustes guardados')},
+ async fuentes_web(){PY().act('fuentes_desde_internet',[F.fuentes_url||''])},
+ async pedir_prog(){D.prog=null;patchNow();D.prog=await PY().datos('datos_programas');patchNow()},
+ async copiar_prog(){if(D.prog){await PY().copiar(D.prog.faltan.join('\n'));toast('Lista copiada')}},
+ async copiar_informe(){const t=await PY().datos('informe_soporte');await PY().copiar(t);toast('Informe copiado: pégalo en tu mensaje')},
+ async buscar_upd(){D.upd=null;D.upd=await PY().datos("buscar_actualizacion");patchNow()},
+ pedir_importar(){PY().act('importar_tabla_ruta',['__elegir__'])},
+ pedir_pegar(){openOv('pegar')},
+ pedir_pendiente(){openOv('pendiente')},
+};
+async function loadMod(m){const k=MODKEY[m];
+ if(k==='nuevo'){const d=await PY().datos('wizard_datos');Object.assign(F,d);F.wifi_clave='';F.pin='';F.fuentes_url=F.fuentes_url||''}
+ if(k==='imp'){F.fuentes_url=F.fuentes_url||(S&&S.fuentes_url)||''}
+ if(k==='mon')D.mon=await PY().datos('datos_monitores');
+ if(k==='prog'){D.prog=null;D.prog=await PY().datos('datos_programas')}
+ if(k==='rep')D.rep=await PY().datos('datos_reportes');
+ if(k==='lib')D.lib=await PY().datos('datos_liberar');
+ if(k==='aj'){F.aj=await PY().datos('ajustes_datos')}
+ patchNow()}
+
+/* ---------- avisos y diálogos ---------- */
+function toast(t){const e=document.createElement('div');e.className='toast glass';e.textContent=t;document.body.appendChild(e);e.animate([{opacity:0,transform:'translate(-50%,16px) scale(.96)',filter:'blur(8px)'},{opacity:1,transform:'translate(-50%,0)',filter:'blur(0)'}],{duration:520,easing:EASE_SOFT,fill:'forwards'});
+  applyInk(e.parentNode===document.body?document:e);setTimeout(()=>e.animate([{opacity:1},{opacity:0,filter:'blur(8px)'}],{duration:400,fill:'forwards'}).onfinish=()=>e.remove(),3200)}
+let OV=null,OVK='';
+function ovHTML(){
+ if(S&&S.modal){const m=S.modal;return `<div class="glass dlg"><h2>${esc(m.titulo)}</h2><div class="dtxt">${esc(m.texto)}</div><div style="display:flex;gap:12px;justify-content:flex-end;margin-top:8px">${m.botones.map((b,i)=>`<button class="btn ${i==m.botones.length-1?'pri':'soft'}" data-resp="${esc(b)}" data-mid="${m.id}">${esc(b)}</button>`).join('')}</div></div>`}
+ if(OVK==='pegar')return `<div class="glass dlg"><h2>Pegar usuarios pendientes</h2><div class="dtxt">Uno por línea: «Nombre Apellido» o «Nombre⇥Apellido».</div><textarea class="inp" id="ta" rows="9" style="resize:none"></textarea><div style="display:flex;gap:12px;justify-content:flex-end"><button class="btn soft" data-close="1">Cancelar</button><button class="btn pri" data-doov="pegar">Agregar</button></div></div>`;
+ if(OVK==='pendiente'){const l=D.pend||[];return `<div class="glass dlg"><h2>Usuarios pendientes</h2><div class="lista" style="max-height:300px">${l.length?l.map((p,i)=>ROW(!i,'',esc(p.n),'',SB('Elegir','',{}).replace('data-act=""',`data-doov="elegir" data-i="${p.i}"`))).join(''):'<div class="dtxt">No hay pendientes: cárgalos en Relación → «Pegar pendientes».</div>'}</div><div style="display:flex;justify-content:flex-end"><button class="btn soft" data-close="1">Cerrar</button></div></div>`}
+ if(OVK==='restaurar'){const r=D.rest||{origenes:[],destinos:[]};return `<div class="glass dlg"><h2>Restaurar datos al perfil</h2><div class="lbl">PERFIL DE LA PC VIEJA (ORIGEN)</div><select class="inp" id="so">${r.origenes.map(o=>`<option>${esc(o)}</option>`).join('')}</select><div class="lbl" style="margin-top:8px">PERFIL DE ESTA PC (DESTINO)</div><select class="inp" id="sd">${r.destinos.map(o=>`<option>${esc(o)}</option>`).join('')}</select><div class="dtxt">Copia Escritorio, Documentos, Descargas, Imágenes, Videos, Música y Favoritos sin pisar archivos más nuevos. El respaldo NO se borra.</div><div style="display:flex;gap:12px;justify-content:flex-end"><button class="btn soft" data-close="1">Cancelar</button><button class="btn pri" data-doov="restaurar">Restaurar</button></div></div>`}
+ if(OVK==='editar'){const d=D.edit||{};return `<div class="glass dlg" style="width:560px"><h2>Editar equipo</h2><div style="max-height:380px;overflow:auto;padding-right:6px">${Object.keys(d).map(k=>`<div class="lbl" style="margin-top:6px">${esc(k.toUpperCase())}</div><input class="inp" data-ed="${esc(k)}" value="${esc(d[k])}" autocomplete="off">`).join('')}</div><div style="display:flex;gap:12px;justify-content:flex-end;margin-top:8px"><button class="btn soft" data-close="1">Cancelar</button><button class="btn pri" data-doov="editar">Guardar</button></div></div>`}
+ return ''}
+function syncOv(){const html=ovHTML();const ov=document.getElementById('ov');
+ if(!html){if(OV){const o=OV;OV=null;o.animate([{opacity:1},{opacity:0}],{duration:240,fill:'forwards'}).onfinish=()=>o.remove();ov.classList.remove('on')}return}
+ const key=(S&&S.modal?'m'+S.modal.id:OVK);if(OV&&OV.dataset.k===key)return;
+ if(OV)OV.remove();const w=document.createElement('div');w.className='ovw';w.dataset.k=key;w.innerHTML=html;ov.appendChild(w);ov.classList.add('on');OV=w;
+ const d=w.querySelector('.dlg');d.animate([{opacity:0,transform:'scale(.92) translateY(16px)',filter:'blur(14px)'},{opacity:1,transform:'none',filter:'blur(0)'}],{duration:620,easing:EASE_SOFT,fill:'forwards'});applyInk(w);bindControls(w)}
+async function openOv(k){OVK=k;if(k==='pendiente')D.pend=await PY().datos('pendientes_lista');if(k==='restaurar')D.rest=await PY().datos('restaurar_opciones');syncOv()}
+function closeOv(){OVK='';D.edit=null;syncOv()}
+
+/* ---------- patch (morph) ---------- */
+function morph(a,b){
+ if(a.nodeType!==b.nodeType||a.nodeName!==b.nodeName){a.replaceWith(b.cloneNode(true));return true}
+ if(a.nodeType===3){if(a.nodeValue!==b.nodeValue)a.nodeValue=b.nodeValue;return false}
+ if(a.nodeType!==1)return false;
+ let nuevo=false;
+ for(const at of [...a.attributes])if(at.name!=='style'&&!b.hasAttribute(at.name))a.removeAttribute(at.name);
+ for(const at of [...b.attributes])if(at.name!=='style'&&a.getAttribute(at.name)!==at.value){if(at.name==='value'&&a===document.activeElement)continue;a.setAttribute(at.name,at.value)}
+ if(a.tagName==='INPUT'||a.tagName==='TEXTAREA'||a.tagName==='SELECT'){if(a!==document.activeElement&&a.tagName==='INPUT'&&a.value!==(b.getAttribute('value')||''))a.value=b.getAttribute('value')||'';return false}
+ if(a.classList.contains('tg')){if(a.classList.contains('on')!==b.classList.contains('on')){const c=b.cloneNode(true);a.replaceWith(c);return true}return false}
+ const ca=[...a.childNodes],cb=[...b.childNodes],n=Math.min(ca.length,cb.length);
+ for(let i=0;i<n;i++)if(morph(ca[i],cb[i]))nuevo=true;
+ for(let i=n;i<ca.length;i++)ca[i].remove();
+ for(let i=n;i<cb.length;i++){a.appendChild(cb[i].cloneNode(true));nuevo=true}
+ return nuevo}
+function curHTML(){return String(mcur?MODS[mcur].h:(rcur?ROLEHTML[rcur]:PAGES[cur]))}
+var PENDING=false;function patchNow(){if(!page||!S)return;if(busy){PENDING=true;return}PENDING=false;const t=document.createElement('div');t.innerHTML=curHTML();
+ let nuevo=false;const ca=[...page.childNodes],cb=[...t.childNodes];
+ if(ca.length!==cb.length){page.innerHTML=t.innerHTML;bindControls(page);applyInk(page);return}
+ for(let i=0;i<ca.length;i++)if(morph(ca[i],cb[i]))nuevo=true;
+ if(nuevo){bindControls(page);applyInk(page)}}
+
+/* ---------- panel de actividad ---------- */
+const $=id=>document.getElementById(id);
+function paintAct(){if(!S)return;
+ const m=/(\d+)/.exec(S.pct||'');const p=m?+m[1]:0;lvl.t=p;
+ $('actchip').innerHTML=`<i class="dot ${dotc(S.estado.nivel==='info'?'':S.estado.nivel)}"></i>${esc(S.estado.texto||(S.ocupado?'Trabajando…':'Listo'))}`;
+ $('tkl').innerHTML=esc(S.vals.datos||'—')+`<span>${esc(S.actual||(S.fase==='esperando'?'Esperando a la PC vieja…':''))}</span>`;
+ $('kva').textContent=S.vals.arch||'—';$('kvv').textContent=S.vals.vel||'—';$('kvr').textContent=S.vals.rest||'—';
+ const c=$('cancel');if(c)c.disabled=!S.ocupado;
+ const lg=$('log');let add=false;
+ for(const x of LOGS.slice(Math.max(0,LOGS.length-130))){if(x.n>(lg._last||0)){const d=document.createElement('div');d.className=x.l==='ok'?'ok':x.l==='err'?'e':x.l==='warn'?'w':'';d.innerHTML=`<span class="t">${esc(x.h)}</span> ${esc(x.t)}`;lg.appendChild(d);lg._last=x.n;add=true}}
+ while(lg.childNodes.length>130)lg.removeChild(lg.firstChild);if(add)lg.scrollTop=lg.scrollHeight}
+
+/* ---------- ciclo de estado ---------- */
+async function poll(){
+ try{const a=PY();if(!a){setTimeout(poll,300);return}
+  const r=await a.poll(S?S.rev:-1,S?S.log_seq:0);
+  if(r){if(r.log_gen!==LOGGEN){LOGS=[];LOGGEN=r.log_gen;$('log').innerHTML='';$('log')._last=0}
+   if(r.logs&&r.logs.length)LOGS=LOGS.concat(r.logs).slice(-400);
+   const prevModo=S&&S.modo;S=r;
+   if(!BRIDGE){BRIDGE=true;init2()}
+   syncOv();paintAct();
+   if(S.vista){const v=S.vista;PY().datos&&0;openOv(v);PY().act('limpiar_vista')}
+   patchNow()}
+  else if(PENDING&&!busy)patchNow()
+ }catch(e){console.error(e)}
+ setTimeout(poll,S&&S.ocupado?120:250)}
+async function init2(){
+ const p=S.prefs||{};if(p.a!=null){rng.value=p.a;ST.solid=false}
+ if(p.solid)setMode(true);else setA(+(rng.value));
+ const f=await PY().fondo();if(f){const im=new Image();im.onload=()=>{DESK.img=im;requestDraw()};im.src=f}
+ const ar=await PY().arranque();if(ar==='nuevo'){setMod(1);showModule(1)}}
+
+/* ---------- eventos ---------- */
+document.addEventListener('click',e=>{
+ const t=e.target;
+ let el=t.closest('[data-resp]');if(el){PY().responder(+el.dataset.mid,el.dataset.resp);return}
+ if(t.closest('[data-close]')){closeOv();return}
+ el=t.closest('[data-doov]');if(el){doOv(el);return}
+ el=t.closest('[data-edit]');if(el){(async()=>{D.edit=await PY().datos('editar_fila_datos',[+el.dataset.edit]);D.editI=+el.dataset.edit;OVK='editar';syncOv()})();return}
+ el=t.closest('[data-act]');if(el&&!el.disabled){const a=el.dataset.act;const args=el.dataset.args?JSON.parse(el.dataset.args):[];
+   if(LOCAL[a]){LOCAL[a]();return}
+   if(a==='cambiar_modo')return;
+   if(a==='toggle_ip_fija'){PY().act(a,args);return}
+   PY().act(a,args);return}
+ el=t.closest('.tg[data-var]');if(el){const k=el.dataset.var,v=!sv(k);if(S.v)S.v[k]=v;PY().set_var(k,v);return}
+ el=t.closest('.tg[data-f]');if(el){const k=el.dataset.f,v=!getF(k);setF(k,v);return}
+});
+function getF(k){return k.split('.').reduce((o,x)=>o&&o[x],F)}
+function setF(k,v){const p=k.split('.');let o=F;for(let i=0;i<p.length-1;i++){o=o[p[i]]=o[p[i]]||{}}o[p[p.length-1]]=v}
+async function doOv(el){const k=el.dataset.doov;
+ if(k==='pegar'){const n=await PY().datos('pegar_pendientes_texto',[$('ta').value]);closeOv();toast(n+' usuarios agregados')}
+ if(k==='elegir'){await PY().datos('elegir_pendiente_idx',[+el.dataset.i]);closeOv()}
+ if(k==='restaurar'){const o=$('so').value,d=$('sd').value;closeOv();PY().datos('restaurar',[o,d])}
+ if(k==='editar'){const d={};OV.querySelectorAll('[data-ed]').forEach(i=>d[i.dataset.ed]=i.value);await PY().datos('editar_fila_guardar',[D.editI,d]);closeOv()}}
+let tmr={};
+document.addEventListener('input',e=>{const i=e.target;
+ if(i.dataset.var){S.v[i.dataset.var]=i.value;clearTimeout(tmr[i.dataset.var]);tmr[i.dataset.var]=setTimeout(()=>PY().set_var(i.dataset.var,i.value),90)}
+ else if(i.dataset.pw){PY().set_var(i.dataset.pw,i.value);if(S.v)S.v['tiene_'+i.dataset.pw]=!!i.value}
+ else if(i.dataset.f){setF(i.dataset.f,i.value)}});
+
+const stage=document.getElementById('stage');
+function mount(i){const p=document.createElement('div');p.className='page';p.innerHTML=PAGES[i];stage.appendChild(p);bindControls(p);applyInk(p);return p}
+let page=mount(0);
+function goto(i){if(i===cur||busy||rcur!==0||mcur!==0)return;busy=true;const dir=i>cur?1:-1;segTo(i,dir);
+  const old=page,nw=mount(i);
+  [...old.children].forEach((c,k)=>c.animate([{opacity:1,transform:'none',filter:'blur(0)'},{opacity:0,transform:`translateX(${-dir*46}px) scale(.97)`,filter:'blur(12px)'}],{duration:380,delay:k*45,easing:'cubic-bezier(.4,0,.8,.4)',fill:'forwards'}));
+  [...nw.children].forEach((c,k)=>{c.style.opacity=0;c.animate([{opacity:0,transform:`translateX(${dir*60}px) scale(.96)`,filter:'blur(14px)'},{opacity:1,transform:'none',filter:'blur(0)'}],{duration:900,delay:200+k*70,easing:EASE_SOFT,fill:'forwards'}).onfinish=()=>{c.style.opacity=1}});
+  [...nw.querySelectorAll('.row')].forEach((r,k)=>r.animate([{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}],{duration:700,delay:380+k*55,easing:EASE_SOFT,fill:'backwards'}));
+  setTimeout(()=>{old.remove();busy=false;applyInk()},1250);page=nw}
+let busy=false;
+bs.forEach((b,i)=>b.addEventListener('click',()=>goto(i)));
+
+
+
+/* ---------- riel: se despliega al pasar el cursor (iconos + nombres) ---------- */
+const rail=document.getElementById('rail'),rbg=rail.querySelector('.rbg'),nms=[...rail.querySelectorAll('.nm')];
+const rw=spring(170,17);rw.x=rw.t=0;let railOpen=false;
+loop.add(dt=>{rw.step(dt);const p=Math.max(0,Math.min(1.05,rw.x));rail.style.width=(92+p*170)+'px';rbg.style.opacity=Math.min(1,p*1.4);
+  nms.forEach((n,i)=>{const q=Math.max(0,Math.min(1,(p-.25-i*.02)/.5));n.style.opacity=q;n.style.transform=`translateX(${(1-q)*-10}px)`;n.style.filter=`blur(${(1-q)*5}px)`})});
+function setRail(o){railOpen=o;rw.t=o?1:0;rw.v+=o?3:-3}
+rail.addEventListener('pointerenter',()=>setRail(true));rail.addEventListener('pointerleave',()=>setRail(false));
+window.setRail=setRail;
+
+const rseg=document.getElementById('rseg'),rthumb=document.getElementById('rthumb'),rbs=[...rseg.querySelectorAll('button')];
+const rl=spring(260,20),rr=spring(120,15);let rcur=0;
+loop.add(dt=>{rl.step(dt);rr.step(dt);const w=rr.x-rl.x;rthumb.style.left=rl.x+'px';rthumb.style.width=Math.max(40,w)+'px';const st=Math.max(0,w-rbs[rcur].offsetWidth);rthumb.style.transform=`scaleY(${1-Math.min(.1,st/900)})`;rthumb.style.setProperty('--hx',(30+st/2)+'%')});
+function rsegTo(i){const b=rbs[i],dir=i>rcur?1:-1;if(dir>0){rr.t=b.offsetLeft+b.offsetWidth;rl.t=b.offsetLeft}else{rl.t=b.offsetLeft;rr.t=b.offsetLeft+b.offsetWidth}rcur=i;rbs.forEach((x,k)=>x.classList.toggle('on',k===i))}
+function swap(html,dir){busy=true;const old=page,nw=document.createElement('div');nw.className='page';nw.innerHTML=html;stage.appendChild(nw);bindControls(nw);applyInk(nw);
+  [...old.children].forEach((c,k)=>c.animate([{opacity:1,transform:'none',filter:'blur(0)'},{opacity:0,transform:`translateX(${-dir*46}px) scale(.97)`,filter:'blur(12px)'}],{duration:380,delay:k*45,easing:'cubic-bezier(.4,0,.8,.4)',fill:'forwards'}));
+  [...nw.children].forEach((c,k)=>{c.style.opacity=0;c.animate([{opacity:0,transform:`translateX(${dir*60}px) scale(.96)`,filter:'blur(14px)'},{opacity:1,transform:'none',filter:'blur(0)'}],{duration:900,delay:200+k*70,easing:EASE_SOFT,fill:'forwards'}).onfinish=()=>{c.style.opacity=1}});
+  [...nw.querySelectorAll('.row')].forEach((r,k)=>r.animate([{opacity:0,transform:'translateY(10px)'},{opacity:1,transform:'none'}],{duration:700,delay:380+k*55,easing:EASE_SOFT,fill:'backwards'}));
+  setTimeout(()=>{old.remove();busy=false;applyInk()},1250);page=nw}
+let mcur=0;
+function gotoRole(i){if(i===rcur||busy||mcur!==0)return;const dir=i>rcur?1:-1;rsegTo(i);syncSeg();swap(i===0?PAGES[cur]:ROLEHTML[i],dir)}
+const ttl=document.getElementById('ttl'),hlRole=document.getElementById('rseg');
+function showModule(m){if(m===mcur||busy)return;const dir=m>mcur?1:-1,was=mcur;mcur=m;syncSeg();
+  if(m>0){ttl.querySelector('h1').textContent=MODS[m].t;ttl.querySelector('small').textContent=MODS[m].s}
+  const show=(el,on)=>{el.animate(on?[{opacity:0,transform:'translateY(8px)',filter:'blur(8px)'},{opacity:1,transform:'none',filter:'blur(0)'}]:[{opacity:1,transform:'none',filter:'blur(0)'},{opacity:0,transform:'translateY(-8px)',filter:'blur(8px)'}],{duration:520,easing:EASE_SOFT,fill:'forwards'});el.style.pointerEvents=on?'auto':'none'};
+  if(m===0){show(ttl,false);show(hlRole,true)}else if(was===0){show(hlRole,false);show(ttl,true)}else{show(ttl,false);setTimeout(()=>show(ttl,true),140)}
+  swap(m===0?(rcur===0?PAGES[cur]:ROLEHTML[rcur]):MODS[m].h,dir)}
+window.showModule=showModule;
+document.addEventListener('click',e=>{if(e.target.closest&&e.target.closest('#bter')&&!busy){stage.animate([{opacity:1,filter:'blur(0)'},{opacity:.0,filter:'blur(18px)'},{opacity:1,filter:'blur(0)'}],{duration:900,easing:EASE_SOFT});setTimeout(()=>{setMod(1);showModule(1)},380)}});
+
+/* pasos 1·2·3: se pliegan líquidos cuando no caben o no aplican (píldora abierta / otros roles) */
+let sa=null,segFolded=false;
+function syncSeg(){const fold=open||rcur!==0||mcur!==0;if(fold===segFolded&&sa)return;segFolded=fold;
+  if(!sa){const w=seg.offsetWidth;seg.style.overflow='hidden';sa=seg.animate([{maxWidth:w+'px',opacity:1,filter:'blur(0)'},{maxWidth:'0px',opacity:0,filter:'blur(8px)',paddingLeft:'0px',paddingRight:'0px',marginLeft:'-14px'}],{duration:650,easing:EASE_SOFT,fill:'both'});sa.pause();sa.currentTime=0}
+  sa.playbackRate=fold?1:-1;if(fold&&sa.currentTime<=0)sa.currentTime=0;if(!fold&&sa.currentTime>=650)sa.currentTime=650;sa.play();
+  seg.style.pointerEvents=fold?'none':'auto'}
+rbs.forEach((b,i)=>b.addEventListener('click',()=>gotoRole(i)));
+window.gotoRole=gotoRole;
+
+/* ---------- interruptores y ondas ---------- */
+function bindControls(root){
+  root.querySelectorAll('.tg').forEach(t=>{if(t._b)return;t._b=1;const i=t.querySelector('i');const sl=spring(230,15),sw=spring(300,22);const on=t.classList.contains('on');
+    sl.x=sl.t=on?15:3;sw.x=sw.t=42;
+    const f=dt=>{sl.step(dt);sw.step(dt);i.style.left=sl.x+'px';i.style.width=sw.x+'px';if(sl.rest()&&sw.rest()){loop.delete(f)}};
+    i.style.left=sl.x+'px';i.style.width='42px';
+    t.addEventListener('click',()=>{const o=!t.classList.contains('on');t.classList.toggle('on',o);sl.t=o?15:3;sw.x=60;sw.v=0;sw.t=42;sl.v+=(o?160:-160);loop.add(f)})});
+  root.querySelectorAll('.btn').forEach(b=>b._b?0:(b._b=1,b).addEventListener('pointerdown',e=>{const r=b.getBoundingClientRect(),s=Math.max(r.width,r.height)*2.2,d=document.createElement('span');d.className='ripple';d.style.cssText=`width:${s}px;height:${s}px;left:${e.clientX-r.left-s/2}px;top:${e.clientY-r.top-s/2}px`;b.appendChild(d);
+    d.animate([{transform:'scale(0)',opacity:.7},{transform:'scale(1)',opacity:0}],{duration:900,easing:'cubic-bezier(.2,.6,.3,1)'}).onfinish=()=>d.remove();
+    b.animate([{transform:'scale(1)'},{transform:'scale(.95)'},{transform:'scale(1)'}],{duration:520,easing:EASE})}))}
+
+/* ---------- agua: olas que reaccionan al nivel ---------- */
+const w1=document.getElementById('w1'),w2=document.getElementById('w2'),pct=document.getElementById('pct');
+const lvl=spring(90,6);lvl.x=lvl.t=0;let ph=0;
+function wave(path,y,amp,k,phase){let d=`M0 150 L0 ${y}`;for(let x=0;x<=310;x+=6)d+=` L${x} ${(y+Math.sin(x*k+phase)*amp+Math.sin(x*k*2.3+phase*1.7)*amp*.35).toFixed(2)}`;path.setAttribute('d',d+' L310 150Z')}
+loop.add(dt=>{lvl.step(dt);ph+=dt*2.2;const y=150-(lvl.x/100)*130-8,sl=Math.min(10,Math.abs(lvl.v)*.4);wave(w2,y-2,5+sl,.045,-ph*.8);wave(w1,y,4+sl,.038,ph);pct.textContent=Math.round(lvl.t)});
+window.setP=v=>{lvl.t=v};
+/* ---------- transparencia ---------- */
+
+/* ---------- fondo de prueba (en el programa real: el escritorio de Windows) ---------- */
+const wall=document.getElementById('wall'),wctx=wall.getContext('2d');
+
+var OFF=0,WALL='escritorio';
+function drawWall(name,keep){if(name)WALL=name;name=WALL;const W=innerWidth,H=innerHeight,c=wctx;if(wall.width!==W||wall.height!==H){wall.width=W;wall.height=H}c.clearRect(0,0,W,H);if(name==='escritorio'&&!DESK.img)name='suave';
+  const lg=(x0,y0,x1,y1,st)=>{const g=c.createLinearGradient(x0,y0,x1,y1);st.forEach(([o,col])=>g.addColorStop(o,col));return g};
+  const rg=(x,y,r,st)=>{const g=c.createRadialGradient(x,y,0,x,y,r);st.forEach(([o,col])=>g.addColorStop(o,col));return g};
+  const bands=(cols,w,ang)=>{c.save();c.translate(W/2,H/2);c.rotate(ang);const n=cols.length,P=w*n,x0=((OFF%P)+P)%P;for(let i=-40;i<40;i++){c.fillStyle=cols[((i%n)+n)%n];c.fillRect(i*w+x0-w*n,-H*2,w+1,H*4)}c.restore()};
+  const grid=(step,col,lw)=>{c.strokeStyle=col;c.lineWidth=lw;c.beginPath();const o=((OFF%step)+step)%step;for(let x=o;x<W;x+=step){c.moveTo(x,0);c.lineTo(x,H)}for(let y=0;y<H;y+=step){c.moveTo(0,y);c.lineTo(W,y)}c.stroke()};
+  if(name==='escritorio'){drawDesk(c,W,H)}else if(name==='lineas'){bands(['#00c2ff','#ffffff','#ff2d92','#101828','#ffd60a','#f1f5f9','#6d28d9','#30d158'],130,-.62);grid(64,'rgba(0,0,0,.55)',2);
+    c.strokeStyle='#fff';c.lineWidth=8;c.beginPath();c.arc(W*.72+OFF*.3%W*0,H*.3,170,0,7);c.stroke();c.strokeStyle='#000';c.lineWidth=3;c.beginPath();c.arc(W*.72,H*.3,190,0,7);c.stroke()}
+  else if(name==='ajedrez'){const z=90,o=((OFF%(z*2))+z*2)%(z*2);for(let y=0;y<H/z+1;y++)for(let x=-2;x<W/z+2;x++){c.fillStyle=(x+y)%2?'#f4f4f4':'#141414';c.fillRect(x*z+o,y*z,z,z)}
+    c.fillStyle='#ff2d55';c.fillRect(W*.1,H*.55,W*.35,26);c.fillStyle='#0a84ff';c.fillRect(W*.5,H*.2,26,H*.6)}
+  else if(name==='gris'){c.fillStyle='#7a7a7a';c.fillRect(0,0,W,H);grid(48,'rgba(255,255,255,.6)',2);grid(240,'rgba(0,0,0,.65)',3)}
+  else if(name==='amarillo'){c.fillStyle='#ffd60a';c.fillRect(0,0,W,H);bands(['#ffd60a','#0a2a8f','#ffd60a','#ffd60a','#d90429'],110,.5);grid(80,'rgba(0,0,0,.5)',2)}
+  else if(name==='mitad'){c.fillStyle='#fafafa';c.fillRect(0,0,W/2,H);c.fillStyle='#08090d';c.fillRect(W/2,0,W/2,H);
+    for(let y=0;y<H;y+=36){c.fillStyle='#222';c.fillRect(40,y,W/2-80,3);c.fillStyle='#e8e8e8';c.fillRect(W/2+40,y+14,W/2-80,3)}}
+  else if(name==='geo'){c.fillStyle='#ffffff';c.fillRect(0,0,W,H);c.fillStyle='#0b0b0f';c.fillRect(W*.35,0,W,H);
+    const sh=[['#ff2d55',.2,.25,150],['#ffd60a',.55,.6,190],['#00c2ff',.8,.25,130],['#30d158',.12,.78,120],['#8b5cf6',.92,.8,150]];sh.forEach(([col,x,y,r],i)=>{c.fillStyle=col;c.beginPath();if(i%2){c.arc(W*x,H*y,r,0,7)}else{c.moveTo(W*x,H*y-r);c.lineTo(W*x+r,H*y+r);c.lineTo(W*x-r,H*y+r);c.closePath()}c.fill();c.strokeStyle='#000';c.lineWidth=3;c.stroke()});grid(100,'rgba(128,128,128,.55)',1.5)}
+  else if(name==='claro'){c.fillStyle='#f5f2ea';c.fillRect(0,0,W,H);bands(['#f5f2ea','#e9e4d6','#fff','#d8d1bf'],150,.7);grid(60,'rgba(40,40,40,.35)',1.5)}
+  else if(name==='oscuro'){c.fillStyle='#0b0f1d';c.fillRect(0,0,W,H);bands(['#0b0f1d','#141b34','#1c2550','#070a14'],150,.7);grid(60,'rgba(150,170,255,.35)',1.5)}
+  else if(name==='suave'){c.fillStyle=lg(0,0,W,H,[[0,'#f3f0ff'],[.25,'#b9c8ff'],[.55,'#4f7cff'],[.8,'#7a4dff'],[1,'#c9a8ff']]);c.fillRect(0,0,W,H);
+    const blob=(x,y,r,col)=>{c.fillStyle=rg(W*x,H*y,W*r,[[0,col],[1,col.replace(/[\d.]+\)$/,'0)')]]);c.fillRect(0,0,W,H)};
+    blob(.12,.12,.38,'rgba(255,255,255,.95)');blob(.9,.1,.34,'rgba(120,200,255,.9)');blob(.55,.5,.4,'rgba(40,90,255,.85)');blob(.2,.85,.38,'rgba(150,90,255,.85)')}
+  if(!keep)sampleGrid()}
+
+var DESK={img:null,px:null,py:0,mw:0,mh:0};
+function drawDesk(c,W,H){const d=window.devicePixelRatio||1,im=DESK.img;let mw=DESK.mw||screen.width*d,mh=DESK.mh||screen.height*d,px=DESK.px==null?(window.screenX||0)*d:DESK.px,py=DESK.px==null?(window.screenY||0)*d:DESK.py;
+  const sc=Math.max(mw/im.width,mh/im.height),ox=(mw-im.width*sc)/2,oy=(mh-im.height*sc)/2;c.drawImage(im,(ox-px)/d,(oy-py)/d,im.width*sc/d,im.height*sc/d)}
+var pendD=0,gridT=0;function requestDraw(){if(pendD)return;pendD=1;requestAnimationFrame(()=>{pendD=0;drawWall(null,true);clearTimeout(gridT);gridT=setTimeout(sampleGrid,140)})}
+window.mbPos=(x,y,w,h)=>{DESK.px=x;DESK.py=y;DESK.mw=w;DESK.mh=h;requestDraw()};
+var moving=null;
+window.moveWall=(ms,dist)=>new Promise(r=>{const t0=performance.now();let last=0;(function f(t){const k=Math.min(1,(t-t0)/ms),e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;OFF=dist*e;drawWall(null,true);if(t-last>90){last=t;sampleGrid()}k<1?requestAnimationFrame(f):(sampleGrid(),r())})(t0)});
+
+/* ---------- rejilla de luminancia del fondo (en el programa real la envía Python desde la captura del escritorio) ---------- */
+var GC=96,GR=58,GRID=new Float32Array(GC*GR).fill(.2);
+function sampleGrid(){const t=document.createElement('canvas');t.width=GC;t.height=GR;const x=t.getContext('2d');x.drawImage(wall,0,0,GC,GR);const d=x.getImageData(0,0,GC,GR).data;
+  const lin=v=>{v/=255;return v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4)};
+  for(let i=0;i<GC*GR;i++)GRID[i]=.2126*lin(d[i*4])+.7152*lin(d[i*4+1])+.0722*lin(d[i*4+2]);applyInk()}
+window.setGrid=(arr)=>{GRID=Float32Array.from(arr);applyInk()};   // gancho para el programa real
+const mixc=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t),rgba=c=>`rgba(${c.map((v,i)=>i<3?Math.round(v):+v.toFixed(3)).join(',')})`,sst=(a,b,x)=>{x=Math.min(1,Math.max(0,(x-a)/(b-a)));return x*x*(3-2*x)};
+function avgL(r){const x0=Math.max(0,Math.floor(r.left/innerWidth*GC)),x1=Math.min(GC-1,Math.floor(r.right/innerWidth*GC)),y0=Math.max(0,Math.floor(r.top/innerHeight*GR)),y1=Math.min(GR-1,Math.floor(r.bottom/innerHeight*GR));let sum=0,n=0,mn=9,mx=-9;
+  for(let y=y0;y<=y1;y++)for(let x=x0;x<=x1;x++){const g=GRID[y*GC+x];sum+=g;n++;if(g<mn)mn=g;if(g>mx)mx=g}avgL.rng=n?mx-mn:0;return n?sum/n:.2}
+var ST={a:.18,ta:.25,solid:false};
+function applyInk(root=document){if(typeof ST==='undefined')return;
+  // tinte del acrílico según el fondo (como Windows: tinte claro sobre fondos claros)
+  let sum=0;for(let i=0;i<GRID.length;i++)sum+=GRID[i];const avg=sum/GRID.length,tw=ST.solid?0:sst(.20,.42,avg);
+  const tc=mixc([20,32,64],[236,242,255],tw),tl=.02+tw*.86;ST.tl=tl;document.documentElement.style.setProperty('--tint',tc.map(Math.round).join(','));
+  const calc=el=>{const L=avgL(el.getBoundingClientRect());const L1=L*(1-ST.ta)+tl*ST.ta,g=Math.min(.9,ST.a*1.1);return Math.pow(L1,1/2.2)*(1-g)+g};  // el cristal blanco se mezcla en el espacio sRGB
+  const vc=new Map();root.querySelectorAll('.glass').forEach(el=>vc.set(el,calc(el)));
+  root.querySelectorAll('.glass,.row,.card>h2,.big,.kv>div,.chip,.log,.top>div:first-child,.mod,.btn.soft,.lbl,.ip,.seg').forEach(el=>{
+    let V=el.classList.contains('glass')?vc.get(el):calc(el);
+    const p=el.closest('.glass');if(p&&p!==el){const Vp=vc.has(p)?vc.get(p):calc(p);V=.4*V+.6*Vp}   // los hijos siguen a su tarjeta: sin parpadeos
+    avgL(el.getBoundingClientRect());const c0=el._t>.5?.45:.55,t=sst(c0-.04,c0+.04,V);el._t=t;const S=el.style;const rg_=avgL.rng||0,tq=1-sst(.06,.42,ST.a),hk=tq*(.3+.7*sst(.12,.6,rg_));
+    const hc=t>.5?'255,255,255':'0,10,34',hf=x=>(x*hk).toFixed(2);S.setProperty('--sh',hk>.02?`0 0 1px rgba(${hc},${hf(1)}),0 0 3px rgba(${hc},${hf(.95)}),0 0 7px rgba(${hc},${hf(.8)}),0 0 14px rgba(${hc},${hf(.6)}),0 0 24px rgba(${hc},${hf(.35)})`:'none');S.setProperty('--ink',rgba(mixc([255,255,255,1],[8,16,36,.94],t)));
+    S.setProperty('--ink2',rgba(mixc([255,255,255,.74+.2*tq],[8,16,36,.66+.26*tq],t)));
+    S.setProperty('--ink3',rgba(mixc([255,255,255,.5+.3*tq],[8,16,36,.46+.34*tq],t)));
+    S.setProperty('--inkS',rgba(mixc([255,255,255,1],[0,92,220,1],t)));
+    S.setProperty('--field',rgba(mixc([0,12,60,.26+.34*tq],[255,255,255,.12+.5*tq],t)));const pk=tq*sst(.5,.85,rg_);S.setProperty('--plate',pk>.02?rgba(mixc([0,10,34,.55*pk],[255,255,255,.55*pk],t)):'rgba(0,0,0,0)');
+    S.setProperty('--line',rgba(mixc([255,255,255,.14],[8,16,36,.12],t)));
+    S.setProperty('--chipbg',rgba(mixc([255,255,255,.18],[255,255,255,.55],t)));
+    S.setProperty('--okc',rgba(mixc([60,225,110,1],[10,120,50,1],t)));S.setProperty('--wc',rgba(mixc([255,190,70,1],[168,92,0,1],t)));S.setProperty('--accent',rgba(mixc([100,181,255,1],[0,102,235,1],t)))})}
+/* ---------- píldora «Cristal»: modo + transparencia, todo escondido en el mismo botón ---------- */
+const gl=document.getElementById('gl'),glt=document.getElementById('glt'),ex=gl.querySelector('.ex'),rng=document.getElementById('rng'),modeEl=document.getElementById('mode');
+let pw0=0,pw1=0,open=false;const gw=spring(190,17);
+function measure(){gl.style.width='auto';ex.style.display='none';pw0=gl.offsetWidth;ex.style.display='';gl.style.width=pw0+'px';pw1=gl.scrollWidth+4;gw.x=gw.t=open?pw1:pw0;gl.style.width=gw.x+'px'}
+loop.add(dt=>{gw.step(dt);gl.style.width=gw.x+'px'});
+function setOpen(o){open=o;syncSeg();gl.classList.toggle('open',o);gw.t=o?pw1:pw0;gw.v+=o?250:-250;ex.animate([{opacity:o?0:1,transform:o?'translateX(14px)':'none',filter:o?'blur(6px)':'blur(0)'},{opacity:o?1:0,transform:o?'none':'translateX(14px)',filter:o?'blur(0)':'blur(6px)'}],{duration:o?700:260,delay:o?160:0,easing:o?EASE_SOFT:'ease-in',fill:'forwards'})}
+gl.addEventListener('click',e=>{if(!open)setOpen(true);else if(!e.target.closest('.ex'))setOpen(false)});
+document.addEventListener('pointerdown',e=>{if(open&&!e.target.closest('#gl'))setOpen(false)});
+var r0_;function setA(v){ST.a=v/100;const tt_=ST.a/.6;ST.ta=ST.solid?.9:.01+.26*tt_;r0_=document.documentElement.style;r0_.setProperty('--blur',(ST.solid?0:26*Math.pow(tt_,1.7)).toFixed(1)+'px');const r=document.documentElement.style;r.setProperty('--a',ST.a);r.setProperty('--ta',ST.ta);document.getElementById('rv').textContent=v+'%';applyInk()}
+function setMode(solid){ST.solid=solid;[...modeEl.children].forEach((b,i)=>b.classList.toggle('on',!!i===solid));glt.textContent=solid?'Sólido':'Cristal';
+  if(solid){rng.dataset.prev=rng.value;rng.value=Math.max(+rng.value,46)}else if(rng.dataset.prev){rng.value=rng.dataset.prev}setA(+rng.value)}
+[...modeEl.children].forEach((b,i)=>b.addEventListener('click',()=>setMode(!!i)));
+rng.addEventListener('input',()=>setA(+rng.value));
+window.setWall=n=>{OFF=0;drawWall(n)};window.setA=setA;window.setMode=setMode;window.setOpen=setOpen;
+const H=new URLSearchParams(location.hash.slice(1));
+addEventListener('resize',()=>{drawWall(H.get('wall')||'escritorio');measure()});
+setTimeout(()=>{segInit();{const b=rbs[0];rl.x=rl.t=b.offsetLeft;rr.x=rr.t=b.offsetLeft+b.offsetWidth}if(H.get("role"))gotoRole(+H.get("role"));if(H.get('mod')){showModule(+H.get('mod'))}if(H.get('rail'))setRail(true);setMod(+(H.get('mod')||0));measure();drawWall(H.get('wall')||'escritorio');setA(+(H.get('a')||4));if(H.get('solid'))setMode(true);if(H.get('open'))setOpen(true);applyInk()},30);
+
+bindControls(document);
+
+/* ---------- enganches finales ---------- */
+(function(){
+ document.addEventListener('contextmenu',e=>e.preventDefault());
+ const _gr=gotoRole;gotoRole=function(i){const b=rcur;_gr(i);if(rcur!==b&&PY())PY().act('cambiar_modo',[rcur])};
+ const _go=goto;goto=function(i){const b=cur;_go(i);if(cur!==b&&PY())PY().act('cambiar_sub',[cur])};
+ const _sm=showModule;showModule=function(m){const b=mcur;_sm(m);if(mcur!==b){loadMod(mcur)}};
+ mods.forEach((m,i)=>{});
+ let pt;rng.addEventListener('change',()=>{clearTimeout(pt);pt=setTimeout(()=>PY()&&PY().datos('pref_guardar',[{a:+rng.value}]),200)});
+ [...modeEl.children].forEach((b,i)=>b.addEventListener('click',()=>PY()&&PY().datos('pref_guardar',[{solid:!!i}])));
+ const go=()=>{if(window.pywebview&&window.pywebview.api)poll();else setTimeout(go,150)};
+ window.addEventListener('pywebviewready',go);setTimeout(go,600);
+})();
+</script></body></html>

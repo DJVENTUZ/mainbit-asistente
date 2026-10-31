@@ -2056,6 +2056,18 @@ def main():
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
         pass
+    if "--clasico" not in sys.argv:
+        try:
+            import mb_ui
+            if mb_ui.disponible():
+                mb_ui.main()
+                return
+        except Exception as e:      # sin WebView2 u otro problema: se abre la interfaz clásica
+            try:
+                with open(os.path.join(U.dir_datos(), "arranque_error.txt"), "w", encoding="utf-8") as f:
+                    f.write(repr(e))
+            except OSError:
+                pass
     raiz = tk.Tk()
     app = App(raiz)
     if "--nuevo" in sys.argv:

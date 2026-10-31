@@ -229,5 +229,21 @@ def _():
     assert rep3["nuevas"] == len(rel.filas), rep3
     print("INFO", R.texto_informe_importacion(rep))
 
+@prueba("núcleo sin interfaz (mb_core) en Windows real")
+def _():
+    import mb_core as K
+    c = K.Core()
+    time.sleep(4)
+    s = c.estado_publico()
+    json.dumps(s)
+    assert s["info"]["host"] and s["version"], s["info"]
+    c.cambiar_modo(1); c.cambiar_modo(2); c.cambiar_modo(0)
+    c.v_serie.set("ABCDEFGH47"); c.v_base.set("124MD2")
+    assert c.estado_publico()["hostname"] == "124MD2FGH47"
+    assert c.datos_reportes()["equipos"] >= 0 and c.datos_programas()["nuevos"] > 0
+    assert c.ajustes_datos()["limite_gb"]
+    print("INFO impresoras en estado:", len(s["impresoras_vieja"]), "unidades:", s["unidades"])
+    c.vivo = False
+
 print("\nRESUMEN:", "TODO OK" if not fallos else "FALLAN -> " + ", ".join(fallos))
 sys.exit(1 if fallos else 0)

@@ -35,7 +35,8 @@ DEFAULTS = {
     "usuario_local_nueva": "",
     "base_hostname": "",          # última base usada (ej. 124MD2) para no reescribirla en cada PC
     "wifi_ssid": "",
-    "soporte_contacto": "",       # texto que aparece en el manual del usuario (teléfono, correo, ventanilla)
+    "soporte_contacto": "",   # texto que aparece en el manual del usuario (teléfono, correo, ventanilla)
+    "fuentes_url": "",        # dirección para bajar las tipografías (.zip)
 }
 
 
@@ -97,7 +98,7 @@ def escribir_json(path, datos):
 
 # Ajustes que la PC vieja comparte con la nueva (nunca contraseñas)
 CLAVES_COMPARTIDAS = ("dominio", "usuario_dominio", "impresora", "usar_impresora", "usuario_local_nueva",
-                      "wifi_ssid", "fuentes_noto", "fuentes_patria", "soporte_contacto", "empresa",
+                      "wifi_ssid", "fuentes_url", "fuentes_noto", "fuentes_patria", "soporte_contacto", "empresa",
                       "tipo_defecto", "limite_gb", "base_hostname")
 
 
