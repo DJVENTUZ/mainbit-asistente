@@ -1,0 +1,21 @@
+name: Spike pywebview
+on:
+  push:
+    branches: [spike]
+jobs:
+  s:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install pywebview pillow
+      - name: correr
+        shell: pwsh
+        run: |
+          python spike/spike.py 2>&1 | Tee-Object out.txt
+          $r = (Select-String -Path out.txt -Pattern "RESULT|Error|Traceback" | Select-Object -First 8 | ForEach-Object { $_.Line }) -join " | "
+          Write-Host "::notice title=SPIKE::$r"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: spike, path: "spike.png"}
