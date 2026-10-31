@@ -26,7 +26,7 @@ jobs:
           if (-not $r -or $r -notmatch '"ok": true') { Write-Host "::error::La interfaz nueva no abrió bien: $r"; exit 1 }
           Remove-Item dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
           python -m pip install pillow
-          $c = python tests\ci_cristal.py dist\MainbitAsistente\MainbitAsistente.exe A B C D E 2>&1 | Out-String
+          $c = python tests\ci_cristal.py dist\MainbitAsistente\MainbitAsistente.exe E F G 2>&1 | Out-String
           Write-Host "::notice title=CRISTAL::$c"
           Compress-Archive -Path dist\MainbitAsistente -DestinationPath MainbitAsistente.zip -Force
       - name: Publicar release "latest"
