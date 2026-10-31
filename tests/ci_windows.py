@@ -96,6 +96,28 @@ def _():
         assert hashlib.md5(open(p1, "rb").read()).digest() == hashlib.md5(open(p2, "rb").read()).digest(), n
     return env.get("recibidos_ok")
 
+
+@prueba("diagnóstico de monitores (texto)")
+def _():
+    t = SYS.monitores_diagnostico(); print("INFO", t[:700]); assert "DIAGNÓSTICO" in t
+
+@prueba("inventario de programas instalados")
+def _():
+    import mb_servicio as SV
+    p = SV.programas_instalados(); print("INFO ejemplos:", [x["nombre"] for x in p[:6]]); assert len(p) > 3
+    f, r, y = SV.comparar(p, p[:-1]); return f"faltan={len(f)} ruido={r} ya={y}"
+
+@prueba("ficha de cierre + marcador + verificar/liberar")
+def _():
+    import mb_servicio as SV, datetime as D
+    t = tempfile.mkdtemp()
+    f, r = SV.escribir_cierre(t, {"host": "VIEJA", "serie": "X", "monitores": [{"serie": "A"}]},
+                              {"total_archivos": 3, "enviados": 3, "recibidos_ok": 3, "omitidos": []})
+    m = SV.escribir_marcador(f); print("INFO marcador:", m)
+    assert not SV.verificar_liberar(t, "VIEJA")[0]
+    assert SV.verificar_liberar(t, "VIEJA", D.datetime.now() + D.timedelta(days=3))[0]
+    if m and os.path.exists(m): os.remove(m)
+
 @prueba("interfaz Tk se construye (modo demo de datos reales)")
 def _():
     import tkinter as tk, mainbit_asistente as A
@@ -106,6 +128,7 @@ def _():
     try:
         from PIL import ImageGrab; ImageGrab.grab().save("pantalla_ci.png")
     except Exception as e: print("INFO sin captura:", e)
+    a.cambiar_sub(2); r.update()
     r.destroy()
 
 print("\nRESUMEN:", "TODO OK" if not fallos else "FALLAN -> " + ", ".join(fallos))

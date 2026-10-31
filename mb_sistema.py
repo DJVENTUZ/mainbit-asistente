@@ -6,6 +6,7 @@ Todo está escrito para NO depender de internet ni de PowerShell cuando es posib
 (las políticas del dominio a veces lo bloquean): serie y modelo salen de SMBIOS,
 el estado del dominio de la API NetGetJoinInformation, etc.
 """
+import json
 import base64
 import ctypes
 import os
@@ -217,6 +218,7 @@ def edid_parse(e):
     num = struct.unpack_from("<I", e, 12)[0]
     anio = 1990 + e[17]
     nombre = serie_txt = ""
+    otros = []
     for off in (54, 72, 90, 108):
         d = e[off:off + 18]
         if d[0:3] == b"\0\0\0":
@@ -225,8 +227,11 @@ def edid_parse(e):
                 nombre = texto
             elif d[3] == 0xFF:
                 serie_txt = texto
+            elif d[3] in (0xFE, 0xFD, 0xFA, 0xF9) and texto:
+                otros.append("%02X:%s" % (d[3], texto))
     return {"fab": fab, "producto": "%04X" % producto, "serie": serie_txt or (str(num) if num else ""),
-            "modelo": nombre, "anio": anio}
+            "modelo": nombre, "anio": anio, "serie_txt": serie_txt, "serie_num": num,
+            "semana": e[16], "otros": otros, "hex": bytes(e[:128]).hex()}
 
 
 def monitores_registro():
@@ -248,6 +253,7 @@ def monitores_registro():
                     d = edid_parse(bytes(edid))
                     if d:
                         d["historico"] = True
+                        d["instancia"] = modelo + "\\" + inst
                         res.append(d)
                 except OSError:
                     pass
@@ -1056,3 +1062,22 @@ def robocopy(src, dst, log=lambda t: None, cancelar=lambda: False):
             log(t)
     p.wait()
     return p.returncode < 8, p.returncode
+
+
+def monitores_diagnostico():
+    """Texto con TODO lo que Windows sabe de cada monitor (para comparar con la etiqueta física)."""
+    lin = ["DIAGNÓSTICO DE MONITORES", "Equipo: " + nombre_host(), ""]
+    act = monitores_wmi() if IS_WIN else []
+    lin.append("== Monitores ACTIVOS ahora (WMI) ==")
+    for m in act or [{}]:
+        lin.append("  " + (json.dumps(m, ensure_ascii=False) if m else "(ninguno)"))
+    lin += ["", "== Todos los monitores que Windows recuerda (registro EDID) =="]
+    for m in monitores_registro():
+        lin.append(f"- Instancia: {m.get('instancia', '')}")
+        lin.append(f"    Fabricante: {m['fab']}  Producto: {m['producto']}  Modelo: {m['modelo']}")
+        lin.append(f"    Serie (texto 0xFF): {m.get('serie_txt') or '(vacío)'}")
+        lin.append(f"    Serie numérica: {m.get('serie_num')} (hex {int(m.get('serie_num') or 0):08X})")
+        lin.append(f"    Fabricado: semana {m.get('semana')} de {m['anio']}   Otros campos: {m.get('otros') or '-'}")
+        lin.append(f"    EDID: {m.get('hex')}")
+    lin += ["", "Anota la serie de la ETIQUETA física de cada monitor junto a este archivo y envíalo."]
+    return "\n".join(lin)

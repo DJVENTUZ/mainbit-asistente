@@ -19,6 +19,7 @@ from tkinter import filedialog, messagebox, ttk, font as tkfont
 import mb_motor as M
 import mb_sistema as SYS
 import mb_util as U
+import mb_servicio as SV
 import mb_widgets as W
 from mb_relacion import COLUMNAS, Relacion, escribir_evidencia, faltantes
 from mb_util import acortar, fmt_bytes, fmt_tiempo, ultimos5
@@ -326,6 +327,8 @@ class App:
         f2.pack(fill="x", pady=(S(6), 0))
         self.boton(f2, "Releer equipo", lambda: self.en_hilo("info", self._cargar_info), h=30, w=110,
                    accion=False, bold=False).pack(side="left")
+        self.boton(f2, "Diagnóstico de monitores", lambda: self.en_hilo("diagmon", self.diagnostico_monitores), h=30,
+                   w=170, accion=False, bold=False).pack(side="left", padx=(8, 0))
         return lm, la
 
     def _nueva1(self, p):
@@ -435,6 +438,8 @@ class App:
         self.boton(f2, "Ejecutar todo", self.ejecutar_todo, C["blue"], h=40).grid(row=0, column=0, sticky="ew", padx=(0, 4))
         self.boton(f2, "Generar evidencia", lambda: self.en_hilo("evidencia", self.generar_evidencia),
                    C["green"], h=40).grid(row=0, column=1, sticky="ew", padx=(4, 0))
+        self.boton(a, "Terminar servicio (reporte final + nuevo equipo)", self.terminar_servicio, C["red"],
+                   h=40).pack(fill="x", pady=(S(8), 0))
 
         self.secc(p, "Registro en la relación de equipos")
         a = self.card(p)
@@ -507,6 +512,13 @@ class App:
             row=0, column=0, sticky="ew", padx=(0, 4))
         self.boton(f2, "Enviar", lambda: self.accion_emisor(False), C["green"], h=42).grid(
             row=0, column=1, sticky="ew", padx=(4, 0))
+        self.secc(p, "Cierre de la PC vieja")
+        a = self.card(p)
+        self.lbl_cierre = self.L(a, "Tras el envío se genera la ficha de cierre y un aviso «NO_BORRAR_HASTA» en el "
+                                    "escritorio. Esta herramienta no borra nada.", 9, color=C["label2"], wraplength=S(400))
+        self.lbl_cierre.pack(fill="x", pady=(0, S(8)))
+        self.boton(a, "Verificar y liberar (después de 2 días)", lambda: self.en_hilo("liberar", self.verificar_liberar),
+                   C["fill"], C["blue"], h=36, accion=False).pack(fill="x")
 
     # ------------------------------------------------------------ Actividad
     def _actividad(self, p):
@@ -1007,6 +1019,8 @@ class App:
                                    f"\nUsuario en sesión: {info.get('usuario', '—')}", fg=C["label"])
         self.r_cpu_a.set(info.get("serie", ""))
         self.r_mon_a.set(mons)
+        if info.get("programas"):
+            self.lbl_vieja.config(text=self.lbl_vieja.cget("text") + f"\nProgramas instalados recibidos: {len(info['programas'])}")
         self.guardar_estado()
 
     # ==================================================================
@@ -1420,6 +1434,105 @@ class App:
         self.ui(messagebox.showinfo, "Evidencia", f"Se generó la evidencia para ServiceNow:\n{txt}\n{htm}")
         self.ui(self.abrir_ruta, carpeta)
 
+    # ==================================================================
+    # Diagnóstico de monitores / cierre / reporte final
+    # ==================================================================
+    def diagnostico_monitores(self):
+        texto = SYS.monitores_diagnostico()
+        carpeta = os.path.join(U.dir_escribible(U.dir_app()), "Diagnosticos")
+        os.makedirs(carpeta, exist_ok=True)
+        ruta = os.path.join(carpeta, f"monitores_{SYS.nombre_host()}_{datetime.now():%Y%m%d_%H%M}.txt")
+        with open(ruta, "w", encoding="utf-8") as f:
+            f.write(texto)
+        for ln in texto.splitlines():
+            if ln.strip().startswith(("Fabricante", "Serie")):
+                self.log(ln.strip(), None)
+        self.log(f"Diagnóstico guardado: {ruta}", "ok")
+        self.ui(messagebox.showinfo, "Diagnóstico de monitores",
+                f"Se guardó el diagnóstico en:\n{ruta}\n\nCompáralo con la serie de la ETIQUETA de cada "
+                "monitor. Si no coinciden, mándame el archivo junto con las series de las etiquetas.")
+
+    def verificar_liberar(self):
+        carpeta = os.path.join(U.dir_escribible(U.dir_app()), "Cierres")
+        ok, msg = SV.verificar_liberar(carpeta, SYS.nombre_host())
+        self.log(msg, "ok" if ok else "warn")
+        self.ui(self.lbl_cierre.config, {"text": msg, "fg": C["green"] if ok else C["yellow"]})
+        self.ui((messagebox.showinfo if ok else messagebox.showwarning), "Cierre de la PC vieja", msg)
+
+    def terminar_servicio(self):
+        if not messagebox.askyesno("Terminar servicio",
+                                   "Se generará el reporte final de este equipo y el programa se reiniciará "
+                                   "limpio para el siguiente (la relación se conserva).\n\n¿Continuar?"):
+            return
+        self.en_hilo("terminar", self._terminar_servicio)
+
+    def _terminar_servicio(self):
+        self.estado_txt("Generando el reporte final…", "warn")
+        info = self.info or {}
+        host = SYS.nombre_host()
+        iv = self.estado.get("info_vieja") or {}
+        tr = self.estado.get("transfer") or {}
+        nuevos = SV.programas_instalados()
+        viejos = iv.get("programas") or []
+        faltan, ruido, ya = SV.comparar(viejos, nuevos) if viejos else ([], 0, 0)
+        unido, dom = SYS.estado_dominio()
+        fu, imp, iva = self.res.get("fuentes"), self.res.get("impresora"), self.res.get("ivanti")
+        sec = [("Equipo", [
+            ("Hostname", host, None), ("Serie CPU", self.v_serie.get() or "—", None),
+            ("Serie monitor", self.v_monitor.get() or "—", None),
+            ("Modelo", f"{info.get('fabricante', '')} {info.get('modelo', '')}".strip() or "—", None),
+            ("Dominio", dom if unido else "NO unido", "ok" if unido else "err"),
+            ("Fecha del servicio", datetime.now().strftime("%d/%m/%Y %H:%M"), None)]),
+            ("Servicio realizado", [
+                ("Migración de datos", (f"{tr.get('ok', 0) + tr.get('ya', 0):,} de {tr.get('total', 0):,} archivos "
+                                         f"({fmt_bytes(tr.get('bytes', 0))})") if tr else "no realizada en esta sesión",
+                 "ok" if tr and not tr.get("malos") else "warn"),
+                ("Archivos descartados", str(tr.get("malos", 0)) if tr else "—", None),
+                ("IVANTI", (f"{iva['ruta']} · {iva['items']} elementos" if iva and iva["existe"] else "sin verificar"),
+                 "ok" if iva and iva["existe"] else "warn"),
+                ("Políticas de dominio", ", ".join(self.res.get("gpo", [])) or "sin verificar",
+                 "ok" if self.res.get("gpo") else "warn"),
+                ("Tipografías", (f"{fu['presentes']}/{fu['total']} instaladas" if fu else "sin verificar"),
+                 "ok" if fu and fu["presentes"] == fu["total"] else "warn"),
+                ("Impresora", imp[1] if imp else "sin verificar", "ok" if imp and imp[0] else "warn")]),
+            ("PC vieja", [("Hostname", iv.get("host", self.estado.get("host_viejo", "—")), None),
+                          ("Serie CPU", iv.get("serie", "—"), None),
+                          ("Serie monitor (la etiqueta manda)", self.r_mon_a.get() or "—", None)]),
+            ("Programas instalados en la PC vieja que NO están en la nueva",
+             [(p["nombre"], p.get("version", ""), "warn") for p in faltan]
+             or [("Ninguno" if viejos else "Sin lista de la PC vieja", "", "ok" if viejos else None)]),
+            ("Resumen de programas", [("En la PC vieja", str(len(viejos)), None), ("En la PC nueva", str(len(nuevos)), None),
+                                      ("Ya presentes", str(ya), None), ("Componentes del sistema ignorados", str(ruido), None)]),
+            ("Programas instalados en la PC nueva", [(p["nombre"], p.get("version", ""), None) for p in nuevos])]
+        carpeta = os.path.join(self.relacion.dir, "Reportes")
+        txt, htm = escribir_evidencia(carpeta, host, f"Reporte de servicio — {host}", sec)
+        self.log(f"Reporte guardado: {txt}", "ok")
+        # reinicio limpio: se borra el avance de ESTE equipo y se relanza el programa (la relación se conserva)
+        for k in ("recibido", "unido", "enviado", "info_vieja", "host_viejo", "transfer", "hostname", "registrado"):
+            self.estado.pop(k, None)
+        self.guardar_estado()
+        self.ui(messagebox.showinfo, "Servicio terminado", f"Reporte generado:\n{txt}\n\nEl programa se reiniciará.")
+        self.ui(self.abrir_ruta, carpeta)
+        self.ui(self.reiniciar_app)
+
+    def reiniciar_app(self):
+        import subprocess
+        try:
+            if getattr(sys, "frozen", False):
+                cmd = [sys.executable]
+            else:
+                cmd = [sys.executable, os.path.abspath(__file__)]
+            if self.ocupado:
+                return
+            if SYS.ip_fija_pendiente():
+                SYS.ip_fija_restaurar()
+            if self.fw_abierto:
+                SYS.cerrar_firewall()
+            subprocess.Popen(cmd, close_fds=True)
+            self.root.destroy()
+        except Exception as e:
+            messagebox.showwarning("Reinicio", f"No se pudo reiniciar solo ({e}). Cierra y abre el programa.")
+
     def abrir_ruta(self, ruta):
         try:
             if SYS.IS_WIN:
@@ -1498,7 +1611,8 @@ class App:
         info["serie"] = self.v_serie_v.get().strip()
         mons = [m for m in (x.strip() for x in self.v_monitor_v.get().split(",")) if m]
         info["monitores"] = [{"serie": m} for m in mons]
-        return {k: info.get(k) for k in ("host", "usuario", "serie", "fabricante", "modelo", "monitores", "os")}
+        info["programas"] = SV.programas_instalados()[:600]
+        return {k: info.get(k) for k in ("host", "usuario", "serie", "fabricante", "modelo", "monitores", "os", "programas")}
 
     def buscar(self):
         self.estado_txt("Buscando receptor en la red local…", "warn")
@@ -1549,6 +1663,13 @@ class App:
                     "Falta la serie", "No se detectó la serie de esta PC vieja (se usa en la relación de equipos).\n"
                                       "¿Continuar sin ella?"):
                 return
+            mons = self.v_monitor_v.get().strip()
+            if not messagebox.askyesno(
+                    "Confirma las series de la PC vieja",
+                    f"Serie CPU: {self.v_serie_v.get().strip() or '—'}\nSerie monitor: {mons or '— (vacía)'}\n\n"
+                    "¿Coinciden con las ETIQUETAS físicas? Si no, pulsa «No», corrígelas en los campos y "
+                    "vuelve a enviar (la serie leída por Windows a veces no es la de la etiqueta)."):
+                return
         self.estado["modo"] = 1
         self.nuevo_job()
         threading.Thread(target=self._hilo_emisor, args=(self.job, ip, rutas, solo_analizar, self.v_cache.get(),
@@ -1590,6 +1711,14 @@ class App:
             problemas = len(res["fallidos"]) + len(res["ilegibles"]) + res["recibidos_mal"]
             self.estado["enviado"] = True
             self.guardar_estado()
+            try:
+                ficha, _ = SV.escribir_cierre(os.path.join(U.dir_escribible(U.dir_app()), "Cierres"), info, res)
+                marcador = SV.escribir_marcador(ficha)
+                job.log(f"Ficha de cierre guardada. NO borrar esta PC antes de {ficha['no_borrar_antes_de'][:10]}.", "info")
+                if marcador:
+                    job.log(f"Aviso en el escritorio: {marcador}", None)
+            except Exception as e:
+                job.log(f"No se pudo guardar la ficha de cierre: {e}", "warn")
             self.estado_txt("¡Envío completado!" if not problemas else "Completado con advertencias",
                             "ok" if not problemas else "warn")
             job.log(f"Enviados {res['enviados']:,} (+{res['ya_estaban']:,} que ya estaban) · "
