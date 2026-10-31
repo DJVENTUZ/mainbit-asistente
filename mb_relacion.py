@@ -4,7 +4,10 @@ import csv
 import html
 import os
 import re
+import shutil
 import time
+import unicodedata
+import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime
 from xml.sax.saxutils import escape as xml_escape
@@ -268,6 +271,183 @@ class Relacion:
         inc = sum(1 for f in self.filas if f["Estado"] == "Incompleto")
         pen = sum(1 for f in self.filas if f["Estado"] == "Pendiente")
         return hechos, inc, pen
+
+
+# ======================================================================
+# Importar tablas de versiones previas (CSV / XLSX) y fusionarlas sin perder nada
+# ======================================================================
+def _norm(t):
+    t = unicodedata.normalize("NFD", str(t or "")).encode("ascii", "ignore").decode().lower()
+    return re.sub(r"[^a-z0-9]+", " ", t).strip()
+
+
+ALIAS = {
+    "Usuario Nombre": ["usuario nombre", "nombre", "usuario", "nombres"],
+    "Apellido": ["apellido", "apellidos"],
+    "Serie cpu Nuevo": ["serie cpu nuevo", "serie cpu nueva", "cpu nuevo", "serie cpu", "serie de cpu nuevo"],
+    "Serie monitor Nuevo": ["serie monitor nuevo", "serie monitor nueva", "monitor nuevo", "serie monitor"],
+    "Serie monitor antiguo": ["serie monitor antiguo", "serie monitor viejo", "monitor antiguo", "monitor viejo"],
+    "Serie cpu antiguo": ["serie cpu antiguo", "serie cpu viejo", "cpu antiguo", "cpu viejo"],
+    "Tipo": ["tipo", "tipo de equipo"],
+    "Hostname": ["hostname", "host", "nombre del equipo", "nombre de equipo"],
+    "Fecha": ["fecha"], "Estado": ["estado"], "Notas": ["notas", "nota", "observaciones"],
+}
+_MAPA = {_norm(a): c for c, al in ALIAS.items() for a in al + [c]}
+
+
+def _leer_xlsx(ruta):
+    """Lector mínimo de .xlsx (sin openpyxl). Devuelve filas de la hoja «Tabla 1» o la primera."""
+    ns = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
+    rel = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+    with zipfile.ZipFile(ruta) as z:
+        comp = []
+        if "xl/sharedStrings.xml" in z.namelist():
+            for si in ET.fromstring(z.read("xl/sharedStrings.xml")).findall("m:si", ns):
+                comp.append("".join(t.text or "" for t in si.iter("{%s}t" % ns["m"])))
+        libro = ET.fromstring(z.read("xl/workbook.xml"))
+        rels = {r.get("Id"): r.get("Target") for r in
+                ET.fromstring(z.read("xl/_rels/workbook.xml.rels"))}
+        hojas = [(h.get("name"), rels.get(h.get(rel))) for h in libro.find("m:sheets", ns)]
+        elegida = next((h for h in hojas if _norm(h[0]) == "tabla 1"), hojas[0])
+        destino = elegida[1].lstrip("/")
+        destino = destino if destino.startswith("xl/") else "xl/" + destino
+        filas = []
+        for r in ET.fromstring(z.read(destino)).iter("{%s}row" % ns["m"]):
+            fila = {}
+            for c in r.findall("m:c", ns):
+                col = re.match(r"[A-Z]+", c.get("r")).group(0)
+                idx = 0
+                for ch in col:
+                    idx = idx * 26 + ord(ch) - 64
+                t = c.get("t")
+                if t == "s":
+                    v = c.find("m:v", ns)
+                    val = comp[int(v.text)] if v is not None else ""
+                elif t == "inlineStr":
+                    val = "".join(x.text or "" for x in c.iter("{%s}t" % ns["m"]))
+                else:
+                    v = c.find("m:v", ns)
+                    val = v.text if v is not None and v.text else ""
+                    if re.fullmatch(r"-?\d+\.0+", val):
+                        val = val.split(".")[0]
+                fila[idx - 1] = val
+            if fila:
+                filas.append([fila.get(i, "") for i in range(max(fila) + 1)])
+        return filas
+
+
+def leer_tabla(ruta):
+    """Devuelve (filas_normalizadas, columnas_reconocidas, columnas_ignoradas)."""
+    ext = os.path.splitext(ruta)[1].lower()
+    if ext in (".xlsx", ".xlsm"):
+        crudo = _leer_xlsx(ruta)
+    elif ext in (".csv", ".txt", ".tsv"):
+        with open(ruta, "r", encoding="utf-8-sig", errors="replace", newline="") as f:
+            muestra = f.read(4096)
+            f.seek(0)
+            sep = max(",;\t", key=muestra.count)
+            crudo = list(csv.reader(f, delimiter=sep))
+    else:
+        raise ValueError("Formato no admitido: usa .csv o .xlsx (en Numbers: Archivo → Exportar a Excel/CSV).")
+    crudo = [r for r in crudo if any(str(x).strip() for x in r)]
+    if not crudo:
+        return [], [], []
+    enc = crudo[0]
+    cols = [_MAPA.get(_norm(h)) for h in enc]
+    if not any(cols):
+        raise ValueError("No reconozco las columnas. Debe haber al menos «Usuario Nombre»/«Apellido»/«Serie cpu Nuevo».")
+    reconocidas = [c for c in cols if c]
+    ignoradas = [enc[i] for i, c in enumerate(cols) if not c and str(enc[i]).strip()]
+    filas = []
+    for r in crudo[1:]:
+        f = fila_vacia()
+        for i, c in enumerate(cols):
+            if c and i < len(r):
+                f[c] = str(r[i]).strip()
+        if any(f.values()):
+            filas.append(f)
+    return filas, reconocidas, ignoradas
+
+
+def _clave(f):
+    cpu = f.get("Serie cpu Nuevo", "").strip().upper()
+    if cpu:
+        return ("cpu", cpu)
+    return ("nom", _norm(f.get("Usuario Nombre", "")), _norm(f.get("Apellido", "")))
+
+
+def _importar(self, ruta):
+    """Fusiona una tabla externa con la relación actual. Nunca pisa un dato existente:
+    llena huecos, agrega filas nuevas y reporta conflictos. Hace copia de seguridad antes."""
+    filas, rec, ign = leer_tabla(ruta)
+    rep = {"archivo": os.path.basename(ruta), "leidas": len(filas), "nuevas": 0, "completadas": 0,
+           "iguales": 0, "conflictos": [], "ignoradas": ign, "copia": ""}
+    if os.path.exists(self.csv):
+        rep["copia"] = self.csv + ".antes_de_importar_" + datetime.now().strftime("%Y%m%d_%H%M%S")
+        shutil.copy2(self.csv, rep["copia"])
+    indice = {}
+    for i, f in enumerate(self.filas):
+        indice.setdefault(_clave(f), i)
+    for nf in filas:
+        k = _clave(nf)
+        i = indice.get(k)
+        if i is None and k[0] == "cpu":       # quizá ya estaba como usuario pendiente sin serie
+            k2 = ("nom", _norm(nf["Usuario Nombre"]), _norm(nf["Apellido"]))
+            j = indice.get(k2)
+            if j is not None and not self.filas[j]["Serie cpu Nuevo"].strip():
+                i = j
+        if i is None:
+            fila = fila_vacia()
+            fila.update({c: nf[c] for c in COLUMNAS if c not in ("Estado", "Notas")})
+            if nf.get("Notas"):
+                fila["Notas"] = nf["Notas"]
+            if not fila["Fecha"]:
+                fila["Fecha"] = ""
+            self.recalcular(fila, "Importado de " + rep["archivo"])
+            if not fila["Serie cpu Nuevo"].strip() and not fila["Hostname"].strip():
+                fila["Estado"], fila["Notas"] = "Pendiente", "Equipo aún sin asignar · importado"
+            self.filas.append(fila)
+            indice[_clave(fila)] = len(self.filas) - 1
+            rep["nuevas"] += 1
+            continue
+        ex, cambio = self.filas[i], False
+        for c in COLUMNAS:
+            if c in ("Estado", "Notas"):
+                continue
+            nuevo = nf.get(c, "").strip()
+            if not nuevo:
+                continue
+            if not ex[c].strip():
+                ex[c], cambio = nuevo, True
+            elif ex[c].strip().upper() != nuevo.upper():
+                rep["conflictos"].append({"equipo": ex.get("Hostname") or ex["Serie cpu Nuevo"] or
+                                          (ex["Usuario Nombre"] + " " + ex["Apellido"]),
+                                          "campo": c, "actual": ex[c], "importado": nuevo})
+        if cambio:
+            if ex["Estado"] != "Pendiente" or ex["Serie cpu Nuevo"].strip():
+                self.recalcular(ex)
+            rep["completadas"] += 1
+        else:
+            rep["iguales"] += 1
+    self.guardar()
+    return rep
+
+
+Relacion.importar = _importar
+
+
+def texto_informe_importacion(rep):
+    l = [f"Importado: {rep['archivo']}",
+         f"  Filas leídas: {rep['leidas']} · nuevas: {rep['nuevas']} · completadas: {rep['completadas']} · ya estaban: {rep['iguales']}"]
+    if rep["conflictos"]:
+        l.append(f"  {len(rep['conflictos'])} datos distintos NO se cambiaron (se conserva el actual):")
+        for c in rep["conflictos"][:12]:
+            l.append(f"    {c['equipo']} · {c['campo']}: actual «{c['actual']}» / archivo «{c['importado']}»")
+    if rep["ignoradas"]:
+        l.append("  Columnas que no uso: " + ", ".join(rep["ignoradas"]))
+    if rep["copia"]:
+        l.append("  Copia de seguridad: " + os.path.basename(rep["copia"]))
+    return "\n".join(l)
 
 
 # ======================================================================

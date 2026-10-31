@@ -24,7 +24,7 @@ import mb_manual as MAN
 import mb_arranque as ARR
 import mb_secretos as SEC
 import mb_widgets as W
-from mb_relacion import COLUMNAS, Relacion, escribir_evidencia, faltantes
+from mb_relacion import COLUMNAS, Relacion, escribir_evidencia, faltantes, texto_informe_importacion
 from mb_util import acortar, fmt_bytes, fmt_tiempo, ultimos5
 from mb_widgets import (C, COL, S, Capsula, Card, FilaEstado, RoundedButton, ScrollFrame,
                         Segmentado, Switch)
@@ -582,6 +582,7 @@ class App:
         self.lbl_rel_res = tk.Label(top, text="", font=self.f(10, True), bg=C["bg"], fg=C["label"], anchor="w")
         self.lbl_rel_res.pack(side="left")
         for texto, cmd, col in (("Abrir carpeta", self.abrir_carpeta_relacion, C["blue"]),
+                                ("Importar tabla…", self.importar_tabla, C["blue"]),
                                 ("Pegar usuarios pendientes", self.pegar_pendientes, C["blue"]),
                                 ("Editar fila", self.editar_fila, C["blue"])):
             b = RoundedButton(top, texto, cmd, C["fill"], col, C["bg"], self.f(9, True), height=34,
@@ -1840,6 +1841,25 @@ class App:
         self.lbl_rel_ruta.config(text=f"Archivo: {self.relacion.xlsx}  (se actualiza solo al guardar)")
         self.actualizar_banner()
 
+    def importar_tabla(self):
+        """Suma a la relación actual una tabla de versiones previas (CSV/XLSX). No pisa datos existentes."""
+        ruta = filedialog.askopenfilename(title="Tabla o base de una versión anterior",
+                                          filetypes=[("Tablas", "*.csv *.xlsx *.xlsm *.txt"), ("Todos", "*.*")])
+        if not ruta:
+            return
+        try:
+            rep = self.relacion.importar(ruta)
+        except Exception as e:
+            messagebox.showerror("Importar tabla", str(e))
+            return
+        txt = texto_informe_importacion(rep)
+        self.log(txt.replace("\n", " | "), "ok")
+        try:
+            self.refrescar_relacion()
+        except Exception:
+            pass
+        messagebox.showinfo("Importación terminada", txt)
+
     def abrir_carpeta_relacion(self):
         self.abrir_ruta(self.relacion.dir)
 
@@ -1986,6 +2006,7 @@ class App:
                 self.conectar_wifi()
         fr = tk.Frame(win, bg=C["card"])
         fr.pack(fill="x", padx=14, pady=(6, 12))
+        RoundedButton(fr, "Importar tabla…", self.importar_tabla, C["fill"], C["blue"], C["card"], self.f(9, True), 36, 130).pack(side="left")
         RoundedButton(fr, "Empezar", empezar, C["blue"], "#FFFFFF", C["card"], self.f(9, True), 36, 120).pack(side="right")
         RoundedButton(fr, "Más tarde", win.destroy, C["fill"], C["label"], C["card"], self.f(9, True), 36, 110).pack(side="right", padx=8)
 

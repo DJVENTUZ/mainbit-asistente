@@ -201,5 +201,33 @@ def _():
     ok, m = DES.descargar("https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/README.md", os.path.join(d, "r.md"), reintentos=1)
     print("INFO descarga internet:", ok, m)
 
+@prueba("importar tablas de versiones previas")
+def _():
+    import mb_relacion as R
+    d = tempfile.mkdtemp()
+    rel = R.Relacion(d)
+    rel.agregar_pendientes(["Ana Lopez"])
+    rel.guardar_equipo({"Usuario Nombre": "Luis", "Apellido": "Ortega", "Serie cpu Nuevo": "ABC12345", "Tipo": "D2"})
+    # CSV de una versión previa con encabezados distintos, punto y coma y acentos
+    p = os.path.join(d, "vieja.csv")
+    open(p, "w", encoding="utf-8-sig").write(
+        "Nombre;Apellidos;Serie CPU nuevo;Monitor nuevo;Tipo;Columna rara\n"
+        "Luis;Ortega;abc12345;MON1;P03;x\n"
+        "Ana;Lopez;ZZZ99999;MON2;D2;x\n"
+        "Maria;Soto;QQQ11111;;D2;x\n")
+    rep = rel.importar(p)
+    assert rep["nuevas"] == 1 and rep["completadas"] == 2, rep
+    assert any(c["campo"] == "Tipo" for c in rep["conflictos"]), rep      # D2 vs P03: se conserva D2
+    luis = rel.filas[rel.indice_por_serie("ABC12345")]
+    assert luis["Tipo"] == "D2" and luis["Serie monitor Nuevo"] == "MON1"
+    assert os.path.exists(rep["copia"]) and "Columna rara" in rep["ignoradas"]
+    n = len(rel.filas); rep2 = rel.importar(p)
+    assert rep2["nuevas"] == 0 and len(rel.filas) == n                      # idempotente
+    # XLSX generado por la propia app (Tabla 1)
+    r2 = R.Relacion(tempfile.mkdtemp())
+    rep3 = r2.importar(rel.xlsx)
+    assert rep3["nuevas"] == len(rel.filas), rep3
+    print("INFO", R.texto_informe_importacion(rep))
+
 print("\nRESUMEN:", "TODO OK" if not fallos else "FALLAN -> " + ", ".join(fallos))
 sys.exit(1 if fallos else 0)
