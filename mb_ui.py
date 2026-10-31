@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """Interfaz Mainbit Toolkit: ventana web (WebView2) + puente hacia el núcleo (mb_core.Core).
 
-El «cristal» se dibuja con el fondo de escritorio REAL de cada PC (se lee su imagen y se alinea
-con la ventana), así funciona igual en cualquier Windows sin depender de la transparencia del sistema."""
+El «cristal» es transparencia REAL de Windows (se ve lo que hay detrás de la ventana)."""
 import ctypes
 import ctypes.wintypes as wt
 import json
@@ -76,7 +75,8 @@ class Api:
         return True
 
     def vidrio(self):
-        return dict(ESTADO_VIDRIO)
+        LISTO_VIDRIO.wait(6)
+        return {k: v for k, v in ESTADO_VIDRIO.items()}
 
     def cristal(self, alpha):
         ESTADO_VIDRIO["alpha"] = max(1, min(250, int(alpha)))
@@ -137,7 +137,8 @@ class Puente:
 # Cristal REAL: la ventana es transparente de verdad (Windows pone detrás tu escritorio y tus ventanas)
 # ----------------------------------------------------------------------
 GC, GR = 96, 58
-ESTADO_VIDRIO = {"ok": False, "alpha": 8}
+ESTADO_VIDRIO = {"ok": False, "alpha": 8, "modo": "ninguno"}
+LISTO_VIDRIO = threading.Event()
 
 
 class _ACCENT(ctypes.Structure):
@@ -153,13 +154,44 @@ class _MARG(ctypes.Structure):
 
 
 def aplicar_vidrio(hwnd, alpha):
-    """Acrílico de Windows con un tinte de intensidad `alpha` (1-255). Devuelve True si el sistema lo aceptó."""
+    """Fondo transparente real. Windows 11 (22H2+): material acrílico del sistema; Windows 10/11 anterior: acrílico
+    por composición. Devuelve True si el sistema lo aceptó (el color que se ve detrás lo pone Windows)."""
+    try:
+        v = ctypes.c_int(3)                                   # DWMSBT_TRANSIENTWINDOW = acrílico
+        if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(v), 4) == 0:
+            ESTADO_VIDRIO["modo"] = "win11"
+            return True
+    except Exception:
+        pass
     try:
         a = _ACCENT(4, 2, (int(alpha) << 24) | (64 << 16) | (32 << 8) | 20, 0)
         d = _WCA(19, ctypes.cast(ctypes.pointer(a), ctypes.c_void_p), ctypes.sizeof(a))
-        return bool(ctypes.windll.user32.SetWindowCompositionAttribute(hwnd, ctypes.byref(d)))
+        if ctypes.windll.user32.SetWindowCompositionAttribute(wt.HWND(hwnd), ctypes.byref(d)):
+            ESTADO_VIDRIO["modo"] = "acrilico"
+            return True
     except Exception:
-        return False
+        pass
+    return False
+
+
+def ajustar_ventana(hwnd, ancho_dis=1380, alto_dis=880):
+    """Tamaño inicial: el del diseño, pero nunca más grande que el área útil de la pantalla (sin tapar la barra de tareas)."""
+    try:
+        u32 = ctypes.windll.user32
+        rc = wt.RECT()
+        u32.SystemParametersInfoW(0x30, 0, ctypes.byref(rc), 0)            # SPI_GETWORKAREA
+        W, H = rc.right - rc.left, rc.bottom - rc.top
+        try:
+            esc = u32.GetDpiForWindow(wt.HWND(hwnd)) / 96.0
+        except Exception:
+            esc = 1.0
+        w = int(min(ancho_dis * esc, W * 0.94))
+        h = int(min(alto_dis * esc, H * 0.94))
+        x = rc.left + (W - w) // 2
+        y = rc.top + (H - h) // 2
+        u32.SetWindowPos(wt.HWND(hwnd), 0, x, y, w, h, 0x0004 | 0x0010)    # NOZORDER | NOACTIVATE
+    except Exception:
+        pass
 
 
 def preparar_ventana(hwnd):
@@ -229,16 +261,20 @@ def _hilo_cristal(ventana, titulo):
             break
         time.sleep(0.1)
     if not hwnd:
+        LISTO_VIDRIO.set()
         return
+    ajustar_ventana(hwnd)
     preparar_ventana(hwnd)
     ESTADO_VIDRIO["ok"] = aplicar_vidrio(hwnd, ESTADO_VIDRIO["alpha"])
+    LISTO_VIDRIO.set()
     ultimo, aplicado = None, ESTADO_VIDRIO["alpha"]
     while True:
         time.sleep(0.7)
         try:
             if ESTADO_VIDRIO["alpha"] != aplicado:
                 aplicado = ESTADO_VIDRIO["alpha"]
-                aplicar_vidrio(hwnd, aplicado)
+                if ESTADO_VIDRIO["modo"] == "acrilico":
+                    aplicar_vidrio(hwnd, aplicado)
             g = capturar_detras(hwnd)
             if g and (ultimo is None or sum(abs(a - b) for a, b in zip(g, ultimo)) / len(g) > 0.004):
                 ultimo = g
@@ -290,12 +326,13 @@ def disponible():
 def main():
     import webview
     import mb_core
+    os.environ.setdefault("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000")   # el contenido web no pinta fondo propio
     puente = Puente()
     core = mb_core.Core(puente)
     api = Api(core)
     titulo = f"{TITULO}"
     w = webview.create_window(titulo, url=os.path.join(dir_web(), "index.html"), js_api=api,
-                              width=1380, height=880, min_size=(1100, 700), background_color="#000000")
+                              width=1380, height=880, min_size=(900, 560), background_color="#000000")
     puente.ventana = w
     api._ventana = w
 
