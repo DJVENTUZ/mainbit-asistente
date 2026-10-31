@@ -6,7 +6,12 @@ import sys
 import tempfile
 
 APP_NAME = "Mainbit Asistente"
-VERSION = "3.0"
+VERSION = "3.1"
+try:                      # lo escribe el compilador automático (commit y fecha)
+    from mb_build import BUILD
+except Exception:
+    BUILD = "local"
+VERSION_COMPLETA = VERSION + ("" if BUILD == "local" else " · " + BUILD)
 IS_WIN = os.name == "nt"
 
 DEFAULTS = {

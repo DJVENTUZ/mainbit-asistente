@@ -80,7 +80,7 @@ class App:
     def __init__(self, root):
         self.root = root
         W.ESC = max(1.0, root.winfo_fpixels("1i") / 96.0)
-        root.title(f"{U.APP_NAME} v{U.VERSION}")
+        root.title(f"{U.APP_NAME} v{U.VERSION_COMPLETA}")
         root.configure(bg=C["bg"])
         fams = set(tkfont.families())
         self.F = next((f for f in ("SF Pro Display", "SF Pro Text", "Segoe UI Variable Display",
@@ -249,7 +249,7 @@ class App:
         cab = tk.Frame(r, bg=C["bg"])
         cab.pack(fill="x", padx=S(20), pady=(S(14), S(4)))
         tk.Label(cab, text="Mainbit Asistente", font=self.f(22, True), bg=C["bg"], fg=C["label"]).pack(side="left")
-        tk.Label(cab, text="v" + U.VERSION, font=self.f(8, True), bg=C["fill"], fg=C["blue"],
+        tk.Label(cab, text="v" + U.VERSION_COMPLETA, font=self.f(8, True), bg=C["fill"], fg=C["blue"],
                  padx=S(8), pady=S(3)).pack(side="left", padx=S(10))
         b_aj = RoundedButton(cab, "Ajustes", self.abrir_ajustes, C["fill"], C["blue"], C["bg"],
                              self.f(9, True), height=34, width=76)

@@ -4,3 +4,4 @@ credenciales.ini
 RELACION_EQUIPOS.*
 config_mainbit.json
 Evidencias/
+mb_build.py
