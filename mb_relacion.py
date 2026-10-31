@@ -158,6 +158,20 @@ class Relacion:
             self.filas = self.semilla()
             self.guardar()
 
+    def archivar_y_vaciar(self, carpeta_destino):
+        """Cierre del servicio: copia la relación completa a `carpeta_destino` (nada se pierde) y deja la lista
+        vacía para el servicio siguiente."""
+        import shutil
+        os.makedirs(carpeta_destino, exist_ok=True)
+        self.guardar()
+        for ruta in (self.csv, self.xlsx):
+            if os.path.exists(ruta):
+                shutil.copy2(ruta, carpeta_destino)
+        n = len(self.filas)
+        self.filas = []
+        self.guardar()
+        return n
+
     def semilla(self):
         filas = []
         for nom, ape, cpu, mon, mona, cpua, tipo in SEED:

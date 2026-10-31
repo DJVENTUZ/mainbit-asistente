@@ -309,7 +309,7 @@ const PROGF=()=>{const p=D.prog;if(!p)return [G(H2('Programas'),cargando),G(H2('
    sub('Compara por nombre; omite componentes del sistema y runtimes.'))];};
 const REPF=()=>{const r=D.rep;if(!r)return [G(H2('Reportes'),cargando),G(H2(' '))];
  return [G(H2('Archivos generados'),r.archivos.length?`<div class="lista">${r.archivos.map((a,i)=>ROW(!i,'',esc(a.nombre),esc(a.carpeta+' · '+a.fecha),SB('Abrir','abrir_ruta',{args:[a.ruta]}))).join('')}</div>`:ROW(1,DOT(''),'Todavía no hay reportes','Se crean con «Generar evidencia» y «Terminar servicio»'),FLEX,B('Abrir la carpeta','abrir_ruta',{args:[r.ruta],s:'padding:15px'})),
-  G(H2('Servicio'),`<div class="kv"><div><label>EQUIPOS</label><b>${r.equipos}</b></div><div><label>HECHOS</label><b>${r.hechos}</b></div><div><label>INCOMPLETOS</label><b>${r.incompletos}</b></div><div><label>PENDIENTES</label><b>${r.pendientes}</b></div></div>`,FLEX,
+  G(H2('Servicio'),(()=>{const L=(S&&S.rel)||{filas:[],hechos:0,incompletos:0,pendientes:0};return `<div class="kv"><div><label>EQUIPOS</label><b>${L.filas.length}</b></div><div><label>HECHOS</label><b>${L.hechos}</b></div><div><label>INCOMPLETOS</label><b>${L.incompletos}</b></div><div><label>PENDIENTES</label><b>${L.pendientes}</b></div></div>`})(),FLEX,
    B('Generar evidencia de este equipo','generar_evidencia',{s:'margin-bottom:10px'}),B('Terminar servicio (todo el grupo de PCs)','terminar_grupo',{c:'pri',s:'color:#fff'}),sub('Cierra el servicio completo: reporte general y asistente de uno nuevo.'))];};
 const LIBF=()=>{const l=D.lib||{};
  return [G(H2('Liberar PC vieja'),ROW(1,DOT(S&&S.estado_flags.enviado?'ok':''),'Envío completado',S&&S.estado_flags.enviado?'Los datos se copiaron y verificaron':'Aún no se ha enviado desde esta PC'),

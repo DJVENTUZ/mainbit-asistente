@@ -270,5 +270,19 @@ def _():
     finally:
         srv.shutdown()
 
+@prueba("cierre de servicio: archiva la relación y vacía la vista")
+def _():
+    import mb_relacion as R
+    d = tempfile.mkdtemp()
+    rel = R.Relacion(d)
+    rel.agregar_pendientes(["Ana Lopez", "Luis Perez"])
+    n0 = len(rel.filas)
+    assert n0 >= 2
+    dest = os.path.join(d, "Servicios", "x")
+    n = rel.archivar_y_vaciar(dest)
+    assert n == n0 and len(rel.filas) == 0 and os.path.exists(os.path.join(dest, "RELACION_EQUIPOS.csv"))
+    assert len(R.Relacion(d).filas) == 0                        # al reabrir sigue vacía (no vuelve la semilla)
+    assert len(R.Relacion(dest).filas) == n0                    # y el archivo guarda todo
+
 print("\nRESUMEN:", "TODO OK" if not fallos else "FALLAN -> " + ", ".join(fallos))
 sys.exit(1 if fallos else 0)

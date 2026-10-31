@@ -1705,9 +1705,19 @@ class App:
         txt, htm = escribir_evidencia(carpeta, "SERVICIO_COMPLETO", "Reporte de todo el servicio", sec)
         self.log(f"Reporte del servicio: {txt}", "ok")
         try:
-            self.relacion.guardar()
-        except Exception:
-            pass
+            import shutil
+            nombre = "".join(ch for ch in (self.cfg.get("empresa") or "Servicio") if ch.isalnum() or ch in " _-").strip() or "Servicio"
+            dest = os.path.join(self.relacion.dir, "Servicios", f"{nombre}_{datetime.now():%Y-%m-%d_%H%M}")
+            n = self.relacion.archivar_y_vaciar(dest)
+            for f in os.listdir(carpeta):                       # copia de los reportes de este servicio (los originales se quedan)
+                p = os.path.join(carpeta, f)
+                if os.path.isfile(p):
+                    shutil.copy2(p, dest)
+            self.log(f"Servicio archivado en {dest} ({n} equipos). La lista queda vacía para el siguiente.", "ok")
+            if hasattr(self, "rev"):
+                self.rev += 1
+        except Exception as e:
+            self.log(f"No se pudo archivar el servicio: {e}", "err")
         for k in list(self.estado):
             if k != "modo":
                 self.estado.pop(k, None)
