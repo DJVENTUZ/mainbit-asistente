@@ -137,7 +137,7 @@ class Puente:
 # Cristal REAL: la ventana es transparente de verdad (Windows pone detrás tu escritorio y tus ventanas)
 # ----------------------------------------------------------------------
 GC, GR = 96, 58
-ESTADO_VIDRIO = {"ok": False, "alpha": 8, "modo": "ninguno"}
+ESTADO_VIDRIO = {"ok": False, "alpha": 8, "modo": "ninguno", "fondo": ""}
 LISTO_VIDRIO = threading.Event()
 
 
@@ -172,6 +172,51 @@ def aplicar_vidrio(hwnd, alpha):
     except Exception:
         pass
     return False
+
+
+def _webview_transparente(ventana):
+    """pywebview pinta el WebView2 con color sólido; aquí se cambia a transparente para ver el vidrio de Windows."""
+    try:
+        import System.Drawing as D
+        from System import Action
+        form = ventana.native
+
+        def buscar(c, prof=0):
+            if hasattr(c, "DefaultBackgroundColor"):
+                return c
+            if prof > 6:
+                return None
+            try:
+                hijos = list(c.Controls)
+            except Exception:
+                hijos = []
+            for h in hijos:
+                r = buscar(h, prof + 1)
+                if r is not None:
+                    return r
+            return None
+
+        def poner():
+            wv = buscar(form)
+            if wv is None:
+                for nom in ("web_view", "browser"):
+                    o = getattr(getattr(form, "browser", form), nom, None)
+                    if o is not None and hasattr(o, "DefaultBackgroundColor"):
+                        wv = o
+                        break
+            if wv is None:
+                ESTADO_VIDRIO["fondo"] = "sin control"
+                return
+            wv.DefaultBackgroundColor = D.Color.Transparent
+            try:
+                form.BackColor = D.Color.Black
+            except Exception:
+                pass
+            ESTADO_VIDRIO["fondo"] = "transparente"
+
+        form.Invoke(Action(poner))
+    except Exception as e:
+        ESTADO_VIDRIO["fondo"] = "error: " + repr(e)[:120]
 
 
 def ajustar_ventana(hwnd, ancho_dis=1380, alto_dis=880):
@@ -264,6 +309,7 @@ def _hilo_cristal(ventana, titulo):
         LISTO_VIDRIO.set()
         return
     ajustar_ventana(hwnd)
+    _webview_transparente(ventana)
     preparar_ventana(hwnd)
     ESTADO_VIDRIO["ok"] = aplicar_vidrio(hwnd, ESTADO_VIDRIO["alpha"])
     LISTO_VIDRIO.set()
@@ -300,6 +346,7 @@ def _prueba(w, core):
         time.sleep(2.5)
         res["titulo"] = w.evaluate_js("document.querySelector('#ttl h1').textContent")
         res["vidrio"] = ESTADO_VIDRIO["ok"]
+        res["vidrio_detalle"] = dict(ESTADO_VIDRIO)
         res["grid"] = w.evaluate_js("typeof GRID!=='undefined'&&GRID.length")
         res["ok"] = bool(v) and res["glass"] >= 3 and res["host"] and res["modulos"] == 10 and res["titulo"] == "Nuevo servicio"
     except Exception as e:
