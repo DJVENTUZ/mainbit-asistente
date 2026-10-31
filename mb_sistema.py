@@ -701,9 +701,12 @@ def _netsh_fw(args):
     return rc == 0
 
 
-def abrir_firewall(p_tcp, p_udp):
+def abrir_firewall(p_tcp, p_udp, p_extra=None):
     if not IS_WIN or not es_admin():
         return False
+    if p_extra:
+        _netsh_fw(["add", "rule", "name=Mainbit Asistente ARRANQUE", "dir=in", "action=allow",
+                   "protocol=TCP", f"localport={p_extra}", "profile=any"])
     a = _netsh_fw(["add", "rule", "name=Mainbit Asistente TCP", "dir=in", "action=allow",
                    "protocol=TCP", f"localport={p_tcp}", "profile=any"])
     b = _netsh_fw(["add", "rule", "name=Mainbit Asistente UDP", "dir=in", "action=allow",
@@ -715,6 +718,7 @@ def cerrar_firewall():
     if IS_WIN and es_admin():
         _netsh_fw(["delete", "rule", "name=Mainbit Asistente TCP"])
         _netsh_fw(["delete", "rule", "name=Mainbit Asistente UDP"])
+        _netsh_fw(["delete", "rule", "name=Mainbit Asistente ARRANQUE"])
 
 
 # ======================================================================
@@ -1116,3 +1120,75 @@ def monitores_diagnostico():
         lin.append(f"    EDID: {m.get('hex')}")
     lin += ["", "Anota la serie de la ETIQUETA física de cada monitor junto a este archivo y envíalo."]
     return "\n".join(lin)
+
+
+# ======================================================================
+# Impresoras: leer en la PC vieja y clonar en la nueva (nunca borra nada)
+# ======================================================================
+_IGNORAR_IMPRESORAS = ("microsoft print to pdf", "microsoft xps", "onenote", "fax",
+                       "send to onenote", "adobe pdf", "pdf creator")
+
+
+def listar_impresoras():
+    """Impresoras de la PC: [{nombre, driver, puerto, host, compartida, recurso, red, predeterminada}]."""
+    if not IS_WIN:
+        return []
+    script = (
+        "$d=(Get-CimInstance Win32_Printer | Where-Object {$_.Default}).Name;"
+        "$p=@{};Get-PrinterPort | ForEach-Object {$p[$_.Name]=$_.PrinterHostAddress};"
+        "Get-Printer | ForEach-Object { [pscustomobject]@{"
+        "nombre=$_.Name;driver=$_.DriverName;puerto=$_.PortName;host=$p[$_.PortName];"
+        "compartida=[bool]$_.Shared;recurso=$_.ShareName;tipo=[string]$_.Type;"
+        "predeterminada=($_.Name -eq $d)} } | ConvertTo-Json -Compress")
+    rc, out, _ = ps(script, timeout=60)
+    out = (out or "").strip()
+    if not out:
+        return []
+    try:
+        datos = json.loads(out)
+    except ValueError:
+        return []
+    if isinstance(datos, dict):
+        datos = [datos]
+    res = []
+    for d in datos:
+        nom = str(d.get("nombre") or "")
+        if not nom or any(x in nom.lower() for x in _IGNORAR_IMPRESORAS):
+            continue
+        red = nom.startswith("\\\\") or str(d.get("tipo", "")).lower() == "connection"
+        res.append({"nombre": nom, "driver": d.get("driver") or "", "puerto": d.get("puerto") or "",
+                    "host": d.get("host") or "", "compartida": bool(d.get("compartida")),
+                    "recurso": d.get("recurso") or "", "red": red,
+                    "predeterminada": bool(d.get("predeterminada"))})
+    return res
+
+
+def clonar_impresora(imp):
+    """Instala una impresora descrita por listar_impresoras(). Devuelve (ok, mensaje)."""
+    nom = imp.get("nombre", "")
+    if imp.get("red") and nom.startswith("\\\\"):
+        return conectar_impresora(nom)
+    host, drv = imp.get("host"), imp.get("driver")
+    if not host or not drv:
+        return False, "Impresora local sin dirección de red: instálala con su driver."
+    puerto = imp.get("puerto") or f"IP_{host}"
+    rc, out, _ = ps(
+        "try { if(-not (Get-PrinterDriver -Name %s -ErrorAction SilentlyContinue)){'MB_SIN_DRIVER';return};"
+        "if(-not (Get-PrinterPort -Name %s -ErrorAction SilentlyContinue)){Add-PrinterPort -Name %s -PrinterHostAddress %s};"
+        "if(-not (Get-Printer -Name %s -ErrorAction SilentlyContinue)){Add-Printer -Name %s -DriverName %s -PortName %s};"
+        "'MB_OK' } catch { 'MB_ERR|' + $_.Exception.Message }"
+        % (ps_q(drv), ps_q(puerto), ps_q(puerto), ps_q(host), ps_q(nom), ps_q(nom), ps_q(drv), ps_q(puerto)),
+        timeout=120)
+    if "MB_OK" in out:
+        return True, "Impresora creada"
+    if "MB_SIN_DRIVER" in out:
+        return False, f"Falta el driver «{drv}» (instálalo y vuelve a intentar)"
+    m = re.search(r"MB_ERR\|(.*)", out, re.S)
+    return False, (m.group(1).strip()[:200] if m else "No se pudo crear")
+
+
+def predeterminar_impresora(nombre):
+    if not IS_WIN:
+        return False
+    rc, out, _ = ps("(New-Object -ComObject WScript.Network).SetDefaultPrinter(%s); 'MB_OK'" % ps_q(nombre), timeout=30)
+    return "MB_OK" in out

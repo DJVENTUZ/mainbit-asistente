@@ -16,7 +16,7 @@ jobs:
       - name: Compilar
         shell: pwsh
         run: |
-          python -m pip install --upgrade pyinstaller
+          python -m pip install --upgrade pyinstaller cryptography
           python -m PyInstaller --noconfirm --clean --onedir --windowed --uac-admin --name MainbitAsistente mainbit_asistente.py
           Compress-Archive -Path dist\MainbitAsistente -DestinationPath MainbitAsistente.zip -Force
       - name: Publicar release "latest"

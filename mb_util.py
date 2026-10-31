@@ -90,21 +90,53 @@ def escribir_json(path, datos):
     os.replace(tmp, path)
 
 
+# Ajustes que la PC vieja comparte con la nueva (nunca contraseñas)
+CLAVES_COMPARTIDAS = ("dominio", "usuario_dominio", "impresora", "usar_impresora", "usuario_local_nueva",
+                      "wifi_ssid", "fuentes_noto", "fuentes_patria", "soporte_contacto", "empresa",
+                      "tipo_defecto", "limite_gb", "base_hostname")
+
+
+def _rutas_config():
+    """Copia junto a la app (viaja con la USB) y copia en ProgramData (sobrevive a reinstalar/actualizar)."""
+    return [os.path.join(dir_app(), "config_mainbit.json"),
+            os.path.join(dir_datos(), "config_mainbit.json")]
+
+
 def cargar_config():
     cfg = dict(DEFAULTS)
-    guardada = leer_json(os.path.join(dir_app(), "config_mainbit.json"), {}) or {}
-    for k, v in guardada.items():
-        if k in DEFAULTS:
-            cfg[k] = v
+    for ruta in reversed(_rutas_config()):      # la copia junto a la app tiene prioridad
+        guardada = leer_json(ruta, {}) or {}
+        for k, v in guardada.items():
+            if k in DEFAULTS:
+                cfg[k] = v
     return cfg
 
 
 def guardar_config(cfg):
-    try:
-        escribir_json(os.path.join(dir_app(), "config_mainbit.json"),
-                      {k: cfg[k] for k in DEFAULTS if cfg.get(k) != DEFAULTS[k]})
-    except OSError:
-        pass
+    datos = {k: cfg[k] for k in DEFAULTS if cfg.get(k) != DEFAULTS[k]}
+    for ruta in _rutas_config():
+        try:
+            os.makedirs(os.path.dirname(ruta), exist_ok=True)
+            escribir_json(ruta, datos)
+        except OSError:
+            pass
+
+
+def config_compartida(cfg):
+    return {k: cfg.get(k) for k in CLAVES_COMPARTIDAS if cfg.get(k) not in (None, "")}
+
+
+def adoptar_config(cfg, recibida):
+    """Rellena SOLO lo que la PC nueva tiene en blanco/por defecto. Devuelve las claves adoptadas."""
+    adoptadas = []
+    for k in CLAVES_COMPARTIDAS:
+        v = (recibida or {}).get(k)
+        if v in (None, "") or k not in DEFAULTS:
+            continue
+        if cfg.get(k) == DEFAULTS[k] and v != DEFAULTS[k]:
+            cfg[k] = v
+            adoptadas.append(k)
+    return adoptadas
 
 
 # ---------------------------------------------------------------- formato

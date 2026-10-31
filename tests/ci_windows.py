@@ -164,5 +164,42 @@ def _():
     shutil.rmtree(raiz, ignore_errors=True)
     return "manual ok"
 
+@prueba("impresoras, config compartida, secretos, descargas, arranque")
+def _():
+    import mb_secretos as SEC, mb_descargas as DES, mb_arranque as ARR, urllib.request
+    imps = SYS.listar_impresoras()
+    print("INFO impresoras:", len(imps), [i["nombre"] for i in imps][:5])
+    assert isinstance(imps, list)
+    cfg = dict(U.DEFAULTS)
+    adop = U.adoptar_config(cfg, {"dominio": "x.test", "wifi_ssid": "RED", "clave_falsa": "no"})
+    assert cfg["dominio"] == "x.test" and "clave_falsa" not in cfg and len(adop) == 2
+    cfg2 = dict(U.DEFAULTS); cfg2["dominio"] = "propio"
+    U.adoptar_config(cfg2, {"dominio": "otro"})
+    assert cfg2["dominio"] == "propio"
+    d = tempfile.mkdtemp()
+    if SEC.disponible():
+        r = os.path.join(d, "s.json")
+        SEC.guardar(r, "1234", {"wifi_clave": "abc"})
+        assert SEC.leer(r, "1234") == {"wifi_clave": "abc"} and SEC.leer(r, "0000") is None
+        assert "abc" not in open(r).read()
+    else:
+        print("INFO cryptography no disponible")
+    app = os.path.join(d, "app"); os.makedirs(app)
+    open(os.path.join(app, "x.exe"), "w").write("x"); open(os.path.join(app, "credenciales.ini"), "w").write("secreto")
+    srv = ARR.iniciar(app, 50110)
+    try:
+        z = os.path.join(d, "a.zip")
+        ok, m = DES.descargar("http://127.0.0.1:50110/app.zip", z)
+        assert ok, m
+        import zipfile
+        n = zipfile.ZipFile(z).namelist()
+        assert "MainbitAsistente/x.exe" in n and not any("credenciales" in x for x in n), n
+        ok, m = DES.descargar("http://127.0.0.1:50110/app.zip", z + "2", sha256="0" * 64, reintentos=1)
+        assert not ok
+    finally:
+        srv.shutdown()
+    ok, m = DES.descargar("https://raw.githubusercontent.com/notofonts/notofonts.github.io/main/README.md", os.path.join(d, "r.md"), reintentos=1)
+    print("INFO descarga internet:", ok, m)
+
 print("\nRESUMEN:", "TODO OK" if not fallos else "FALLAN -> " + ", ".join(fallos))
 sys.exit(1 if fallos else 0)

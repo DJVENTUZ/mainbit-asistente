@@ -21,6 +21,8 @@ import mb_sistema as SYS
 import mb_util as U
 import mb_servicio as SV
 import mb_manual as MAN
+import mb_arranque as ARR
+import mb_secretos as SEC
 import mb_widgets as W
 from mb_relacion import COLUMNAS, Relacion, escribir_evidencia, faltantes
 from mb_util import acortar, fmt_bytes, fmt_tiempo, ultimos5
@@ -428,6 +430,7 @@ class App:
                  ("politicas", "Políticas aplicadas", "Aplicar", lambda: self.en_hilo("gpo", self.chk_politicas)),
                  ("fuentes", "Tipografías (72 Noto Sans + 3 Patria)", "Instalar", self.accion_fuentes),
                  ("impresora", "Impresora de red", "Conectar", lambda: self.en_hilo("impresora", self.chk_impresora)),
+                 ("impvieja", "Impresoras de la PC vieja (clonar)", "Clonar", lambda: self.en_hilo("clonar", self.chk_clonar_impresoras)),
                  ("datos", "Datos restaurados al perfil (opcional)", "Restaurar", self.abrir_restaurar)]
         for clave, texto, boton, cmd in filas:
             fr = FilaEstado(a, texto, C["card"], self.f(9), boton, cmd, wrap=250)
@@ -972,10 +975,16 @@ class App:
         threading.Thread(target=M.servidor_discovery, args=(stop,), daemon=True).start()
         p = job.prog
         try:
-            if SYS.abrir_firewall(M.PORT_TRANSFER, M.PORT_DISCOVER):
+            if SYS.abrir_firewall(M.PORT_TRANSFER, M.PORT_DISCOVER, ARR.PORT_ARRANQUE):
                 self.fw_abierto = True
                 job.log("Firewall: puertos abiertos automáticamente.", "ok")
             ips = ", ".join(ip for _, ip in SYS.describir_ips()) or "sin IP"
+            try:
+                self.srv_arranque = ARR.iniciar(U.dir_app())
+                ip1 = (SYS.describir_ips() or [("", "")])[0][1]
+                job.log(f"PC vieja sin la app: pega en PowerShell → {ARR.comando_vieja(ip1)}", "info")
+            except OSError:
+                pass
             job.log(f"Receptor activo · IP {ips} · puerto {M.PORT_TRANSFER}", "info")
             job.log(f"Destino: {destino}", None)
             self.estado_txt("Esperando al emisor…", "info")
@@ -1021,6 +1030,10 @@ class App:
     def on_pc_vieja(self, host, ip, info):
         self.estado["info_vieja"] = info
         self.estado["host_viejo"] = host
+        adop = U.adoptar_config(self.cfg, info.get("config"))
+        if adop:
+            U.guardar_config(self.cfg)
+            self.log("Ajustes tomados de la PC vieja: " + ", ".join(adop), "ok")
         mons = ", ".join(m.get("serie", "") for m in info.get("monitores", []) if m.get("serie"))
         self.lbl_vieja.config(text=f"{host}  ({ip})\nSerie CPU: {info.get('serie', '—')}\nMonitor: {mons or '—'}"
                                    f"\nUsuario en sesión: {info.get('usuario', '—')}", fg=C["label"])
@@ -1553,15 +1566,17 @@ class App:
         self.guardar_estado()
         self.ui(messagebox.showinfo, "Servicio terminado", f"Reporte generado:\n{txt}\n\nEl programa se reiniciará.")
         self.ui(self.abrir_ruta, carpeta)
-        self.ui(self.reiniciar_app)
+        self.ui(self.reiniciar_app, True)
 
-    def reiniciar_app(self):
+    def reiniciar_app(self, nuevo=False):
         import subprocess
         try:
             if getattr(sys, "frozen", False):
                 cmd = [sys.executable]
             else:
                 cmd = [sys.executable, os.path.abspath(__file__)]
+            if nuevo:
+                cmd.append("--nuevo")
             if self.ocupado:
                 return
             if SYS.ip_fija_pendiente():
@@ -1652,7 +1667,10 @@ class App:
         mons = [m for m in (x.strip() for x in self.v_monitor_v.get().split(",")) if m]
         info["monitores"] = [{"serie": m} for m in mons]
         info["programas"] = SV.programas_instalados()[:600]
-        return {k: info.get(k) for k in ("host", "usuario", "serie", "fabricante", "modelo", "monitores", "os", "programas")}
+        info["impresoras"] = SYS.listar_impresoras()
+        info["config"] = U.config_compartida(self.cfg)
+        return {k: info.get(k) for k in ("host", "usuario", "serie", "fabricante", "modelo", "monitores", "os",
+                                         "programas", "impresoras", "config")}
 
     def buscar(self):
         self.estado_txt("Buscando receptor en la red local…", "warn")
@@ -1882,6 +1900,95 @@ class App:
     # ==================================================================
     # Ajustes
     # ==================================================================
+    def chk_clonar_impresoras(self):
+        imps = (self.estado.get("info_vieja") or {}).get("impresoras") or []
+        fr = self.f_fin["impvieja"]
+        if not imps:
+            self.ui(fr.set, None, "La PC vieja no envió impresoras (conéctala primero).")
+            return
+        self.ui(fr.set, "run", f"Clonando {len(imps)} impresoras…")
+        hechas, faltan, pred = [], [], None
+        for imp in imps:
+            if SYS.impresora_existe(imp["nombre"]):
+                hechas.append(imp["nombre"])
+            else:
+                ok, msg = SYS.clonar_impresora(imp)
+                (hechas if ok else faltan).append(imp["nombre"] if ok else f"{imp['nombre']} ({msg})")
+                self.log(f"Impresora {imp['nombre']}: {msg}", "ok" if ok else "warn")
+            if imp.get("predeterminada") and imp["nombre"] in hechas:
+                pred = imp["nombre"]
+        if pred:
+            SYS.predeterminar_impresora(pred)
+        self.res["impresoras_clonadas"] = {"ok": hechas, "faltan": faltan, "predeterminada": pred}
+        det = f"{len(hechas)}/{len(imps)} listas" + (f" · faltan: {'; '.join(faltan)[:160]}" if faltan else "")
+        self.ui(fr.set, "ok" if not faltan else "warn", det)
+
+    def wizard_nuevo(self):
+        """Asistente de inicio de un servicio nuevo: todo preconfigurado con lo último usado."""
+        win = tk.Toplevel(self.root)
+        win.title("Nuevo servicio")
+        win.configure(bg=C["card"])
+        win.transient(self.root)
+        win.grab_set()
+        self.L(win, "Nuevo servicio", 13, True).pack(anchor="w", padx=14, pady=(12, 0))
+        self.L(win, "Todo viene con lo último que usaste. Cambia solo lo que sea distinto.", 9,
+               color=C["label2"]).pack(anchor="w", padx=14, pady=(0, 6))
+        g = tk.Frame(win, bg=C["card"])
+        g.pack(padx=14, pady=6)
+        pin_ok = SEC.disponible()
+        vs = {}
+        campos = [("empresa", "Cliente / proyecto", self.cfg["empresa"], None),
+                  ("tipo_defecto", "Tipo de equipo", self.cfg["tipo_defecto"], None),
+                  ("dominio", "Dominio", self.cfg["dominio"], None),
+                  ("usuario_dominio", "Usuario de dominio", self.v_user_dom.get() or self.cfg["usuario_dominio"], None),
+                  ("impresora", "Impresora de red (vacío = ninguna)", self.cfg["impresora"] if self.cfg["usar_impresora"] else "", None),
+                  ("wifi_ssid", "WiFi (SSID)", self.v_ssid.get(), None),
+                  ("wifi_clave", "Clave WiFi", "", "•"),
+                  ("pin", "PIN para recordar la clave (opcional)", "", "•")]
+        ruta_sec = os.path.join(U.dir_datos(), "secretos.json")
+        pin_prev = {}
+        for r, (k, t, v0, show) in enumerate(campos):
+            if k == "pin" and not pin_ok:
+                continue
+            self.L(g, t, 9, color=C["label2"]).grid(row=r, column=0, sticky="w", pady=3, padx=(0, 10))
+            v = tk.StringVar(value=v0)
+            vs[k] = v
+            self.entrada(g, v, width=34, show=show).grid(row=r, column=1, pady=3, ipady=4)
+        if pin_ok and os.path.exists(ruta_sec):
+            self.L(win, "Hay una clave WiFi guardada: escribe tu PIN y deja la clave en blanco para usarla.", 8,
+                   color=C["label2"]).pack(anchor="w", padx=14)
+
+        def empezar():
+            clave, pin = vs["wifi_clave"].get(), vs["pin"].get() if "pin" in vs else ""
+            if not clave and pin and pin_ok:
+                d = SEC.leer(ruta_sec, pin)
+                if d is None:
+                    messagebox.showwarning("PIN", "PIN incorrecto o no hay clave guardada.")
+                    return
+                clave = d.get("wifi_clave", "")
+            for k in ("empresa", "tipo_defecto", "dominio", "usuario_dominio"):
+                self.cfg[k] = vs[k].get().strip()
+            imp = vs["impresora"].get().strip()
+            self.cfg["usar_impresora"] = bool(imp)
+            if imp:
+                self.cfg["impresora"] = imp
+            self.cfg["wifi_ssid"] = vs["wifi_ssid"].get().strip()
+            self.v_ssid.set(self.cfg["wifi_ssid"])
+            self.v_user_dom.set(self.cfg["usuario_dominio"])
+            self.v_pass_wifi.set(clave)
+            if clave and pin and pin_ok:
+                SEC.guardar(ruta_sec, pin, {"wifi_clave": clave})
+            U.guardar_config(self.cfg)
+            self._regenerar_base()
+            self.lbl_dominio.config(text="Dominio: " + (self.cfg["dominio"] or "(VACÍO: abre Ajustes)"))
+            win.destroy()
+            if self.cfg["wifi_ssid"] and clave:
+                self.conectar_wifi()
+        fr = tk.Frame(win, bg=C["card"])
+        fr.pack(fill="x", padx=14, pady=(6, 12))
+        RoundedButton(fr, "Empezar", empezar, C["blue"], "#FFFFFF", C["card"], self.f(9, True), 36, 120).pack(side="right")
+        RoundedButton(fr, "Más tarde", win.destroy, C["fill"], C["label"], C["card"], self.f(9, True), 36, 110).pack(side="right", padx=8)
+
     def abrir_ajustes(self):
         win = tk.Toplevel(self.root)
         win.title("Ajustes")
@@ -1929,7 +2036,9 @@ def main():
     except Exception:
         pass
     raiz = tk.Tk()
-    App(raiz)
+    app = App(raiz)
+    if "--nuevo" in sys.argv:
+        raiz.after(700, app.wizard_nuevo)
     raiz.mainloop()
 
 
