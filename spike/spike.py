@@ -1,47 +1,48 @@
-import os, sys, time, threading, json, ctypes
-VAR=sys.argv[1] if len(sys.argv)>1 else "a"
-if VAR in ("a","c"): os.environ["WEBVIEW2_DEFAULT_BACKGROUND_COLOR"] = "00FFFFFF"
+import os, sys, time, threading, json, ctypes, platform
+import ctypes.wintypes as wt
+VAR = sys.argv[1]
+if VAR in ("a", "b", "c"):
+    os.environ["WEBVIEW2_DEFAULT_BACKGROUND_COLOR"] = "00FFFFFF"
 import webview
-RES = {}
-class Api:
-    def ping(self, x):
-        RES["ping"] = x
-        return "pong " + str(x)
-HTML = """<html><body style='margin:0;background:transparent'>
-<div style='margin:40px;height:300px;border-radius:30px;background:rgba(255,255,255,.18);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.5);color:#fff;font:700 28px Segoe UI;padding:30px'>Cristal prueba<div id=o></div></div>
-<script>
-window.addEventListener('pywebviewready',async()=>{document.getElementById('o').textContent=await pywebview.api.ping(7)});
-</script></body></html>"""
-def acrylic(hwnd):
-    class ACCENT(ctypes.Structure):
-        _fields_ = [("State", ctypes.c_int), ("Flags", ctypes.c_int), ("Gradient", ctypes.c_uint), ("Anim", ctypes.c_int)]
-    class WCA(ctypes.Structure):
-        _fields_ = [("Attr", ctypes.c_int), ("Data", ctypes.c_void_p), ("Size", ctypes.c_size_t)]
-    a = ACCENT(4, 2, 0x33FFFFFF, 0)   # acrylic blur-behind
+RES = {"var": VAR, "win": platform.version()}
+HTML = "<html><body style='margin:0;background:transparent'><div style='margin:40px;height:300px;border-radius:30px;background:rgba(255,255,255,.18);color:#fff;font:700 28px Segoe UI;padding:30px'>Cristal</div></body></html>"
+class ACCENT(ctypes.Structure):
+    _fields_ = [("State", ctypes.c_int), ("Flags", ctypes.c_int), ("Gradient", ctypes.c_uint), ("Anim", ctypes.c_int)]
+class WCA(ctypes.Structure):
+    _fields_ = [("Attr", ctypes.c_int), ("Data", ctypes.c_void_p), ("Size", ctypes.c_size_t)]
+class MARG(ctypes.Structure):
+    _fields_ = [("l", ctypes.c_int), ("r", ctypes.c_int), ("t", ctypes.c_int), ("b", ctypes.c_int)]
+def accent(hwnd, state, grad):
+    a = ACCENT(state, 2, grad, 0)
     d = WCA(19, ctypes.cast(ctypes.pointer(a), ctypes.c_void_p), ctypes.sizeof(a))
     return ctypes.windll.user32.SetWindowCompositionAttribute(hwnd, ctypes.byref(d))
 def trabajo(win):
     time.sleep(5)
+    u32 = ctypes.windll.user32
+    hwnd = u32.FindWindowW(None, "spike")
+    RES["hwnd"] = bool(hwnd)
     try:
-        hwnd = ctypes.windll.user32.FindWindowW(None, "spike")
-        RES["hwnd"] = hwnd
-        RES["acrylic"] = acrylic(hwnd) if hwnd else None
+        v = ctypes.c_int(0); ctypes.windll.dwmapi.DwmIsCompositionEnabled(ctypes.byref(v)); RES["dwm"] = v.value
+        if VAR in ("b", "c", "d"):
+            RES["extend"] = ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(MARG(-1, -1, -1, -1)))
+            if VAR == "b":
+                RES["backdrop"] = ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(ctypes.c_int(3)), 4)
+            if VAR == "c":
+                RES["accent"] = accent(hwnd, 4, 0x33000000)
+            if VAR == "d":
+                RES["accent"] = accent(hwnd, 3, 0x00000000)    # blur behind
     except Exception as e:
-        RES["acrylic_err"] = repr(e)
+        RES["err"] = repr(e)
     time.sleep(2)
-    try:
-        from PIL import ImageGrab
-        import ctypes.wintypes as wt
-        r = wt.RECT(); ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))
-        im = ImageGrab.grab(); im.save("spike_%s.png" % VAR); RES["rect"] = [r.left, r.top, r.right, r.bottom]
-        RES["margen"] = im.getpixel((r.left + 20, r.top + 20)); RES["tarjeta"] = im.getpixel((r.left + 200, r.top + 150)); RES["escritorio"] = im.getpixel((2, 2))
-    except Exception as e:
-        RES["shot_err"] = repr(e)
-    try:
-        RES["texto"] = win.evaluate_js("document.getElementById('o').textContent")
-    except Exception as e:
-        RES["js_err"] = repr(e)
-    print("RESULT", VAR, json.dumps(RES, default=str)); sys.stdout.flush()
-    os._exit(0)
-w = webview.create_window("spike", html=HTML, js_api=Api(), width=900, height=500, frameless=True, transparent=(VAR in ("a","b")), easy_drag=True)
+    from PIL import ImageGrab
+    pt = wt.POINT(0, 0); u32.ClientToScreen(hwnd, ctypes.byref(pt))
+    for nombre, kw in (("normal", {}), ("capas", {"include_layered_windows": True})):
+        im = ImageGrab.grab(**kw)
+        RES["margen_" + nombre] = im.getpixel((pt.x + 20, pt.y + 20)); RES["tarjeta_" + nombre] = im.getpixel((pt.x + 200, pt.y + 150))
+    RES["escritorio"] = ImageGrab.grab().getpixel((2, 2))
+    u32.SetWindowDisplayAffinity(hwnd, 0x11)
+    time.sleep(1)
+    RES["excluida_margen"] = ImageGrab.grab().getpixel((pt.x + 20, pt.y + 20))
+    print("RESULT", json.dumps(RES)); sys.stdout.flush(); os._exit(0)
+w = webview.create_window("spike", html=HTML, width=900, height=500, frameless=(VAR == "a"), transparent=(VAR == "a"))
 webview.start(trabajo, w)
