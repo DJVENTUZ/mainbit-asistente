@@ -13,8 +13,8 @@ jobs:
       - name: correr
         shell: pwsh
         run: |
-          python spike/spike.py 2>&1 | Tee-Object out.txt
-          $r = (Select-String -Path out.txt -Pattern "RESULT|Error|Traceback" | Select-Object -First 8 | ForEach-Object { $_.Line }) -join " | "
+          foreach ($v in "a","b","c","d") { python spike/spike.py $v 2>&1 | Tee-Object -Append out.txt }
+          $r = (Select-String -Path out.txt -Pattern "RESULT|Error|Traceback" | Select-Object -First 12 | ForEach-Object { $_.Line }) -join " | "
           Write-Host "::notice title=SPIKE::$r"
       - uses: actions/upload-artifact@v4
         if: always()

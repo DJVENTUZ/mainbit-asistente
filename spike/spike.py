@@ -1,5 +1,6 @@
 import os, sys, time, threading, json, ctypes
-os.environ["WEBVIEW2_DEFAULT_BACKGROUND_COLOR"] = "00FFFFFF"
+VAR=sys.argv[1] if len(sys.argv)>1 else "a"
+if VAR in ("a","c"): os.environ["WEBVIEW2_DEFAULT_BACKGROUND_COLOR"] = "00FFFFFF"
 import webview
 RES = {}
 class Api:
@@ -30,15 +31,17 @@ def trabajo(win):
     time.sleep(2)
     try:
         from PIL import ImageGrab
-        im = ImageGrab.grab(); im.save("spike.png"); RES["shot"] = im.size
-        RES["px"] = im.getpixel((200, 200)); RES["px_bg"] = im.getpixel((5, 5))
+        import ctypes.wintypes as wt
+        r = wt.RECT(); ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(r))
+        im = ImageGrab.grab(); im.save("spike_%s.png" % VAR); RES["rect"] = [r.left, r.top, r.right, r.bottom]
+        RES["margen"] = im.getpixel((r.left + 20, r.top + 20)); RES["tarjeta"] = im.getpixel((r.left + 200, r.top + 150)); RES["escritorio"] = im.getpixel((2, 2))
     except Exception as e:
         RES["shot_err"] = repr(e)
     try:
         RES["texto"] = win.evaluate_js("document.getElementById('o').textContent")
     except Exception as e:
         RES["js_err"] = repr(e)
-    print("RESULT", json.dumps(RES, default=str)); sys.stdout.flush()
+    print("RESULT", VAR, json.dumps(RES, default=str)); sys.stdout.flush()
     os._exit(0)
-w = webview.create_window("spike", html=HTML, js_api=Api(), width=900, height=500, frameless=True, transparent=True, easy_drag=True)
+w = webview.create_window("spike", html=HTML, js_api=Api(), width=900, height=500, frameless=True, transparent=(VAR in ("a","b")), easy_drag=True)
 webview.start(trabajo, w)
