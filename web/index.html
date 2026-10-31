@@ -131,6 +131,18 @@ body:not(.wiz) .mod[data-n="Nuevo servicio"]{display:none}
 @media (max-height:880px){.app{padding:14px;gap:14px}.main{gap:12px}.card{padding:16px 20px;gap:8px}.row{padding:7px 0}.inp{padding:9px 14px}.btn{padding:10px 20px}.lbl{margin-bottom:3px}.big{font-size:52px}}
 @media (max-height:760px){.app{padding:10px;gap:10px}.main{gap:10px}.card{padding:12px 16px;gap:5px}.row{padding:4px 0}.row .t b{font-size:14px}.inp{padding:7px 12px}.btn{padding:8px 16px;font-size:13px}.big{font-size:44px}.tank{height:110px}}
 @media (max-width:1180px){.app{grid-template-columns:84px 1fr 290px;gap:12px}}
+
+/* ===== tipografía ligera estilo Apple ===== */
+body{font-weight:400;letter-spacing:-.003em;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+.card h2,.lbl{font-weight:600!important;letter-spacing:.07em!important;opacity:.85}
+.row .t b{font-weight:500!important}
+.row .t span{font-weight:400}
+.btn,.seg button,.chip,.gl{font-weight:500!important}
+.btn.pri,.btn.ok{font-weight:600!important}
+.big,.ip{font-weight:600!important;letter-spacing:-.025em}
+.top h1,#ttl h1,.hl h1{font-weight:600!important;letter-spacing:-.02em}
+.kv b{font-weight:600!important}
+.logo{font-weight:700}
 </style></head><body>
 <canvas id="wall"></canvas><div id="ov"></div><div class="acrylic" id="acr"></div>
 <div class="app">
@@ -318,8 +330,8 @@ const MONF=()=>{const m=(D.mon&&D.mon.monitores)||[];
 const PROGF=()=>{const p=D.prog;if(!p)return [G(H2('Programas'),cargando),G(H2(' '))];
  return [G(H2('Faltan en esta PC ('+p.faltan.length+')'),p.hay_vieja?(p.faltan.length?`<div class="lista">${p.faltan.map((n,i)=>ROW(!i,DOT('warn'),esc(n),'')).join('')}</div>`:ROW(1,DOT('ok'),'No falta nada','Todo lo de la PC vieja ya está aquí')):ROW(1,DOT(''),'Aún no hay lista de la PC vieja','Se recibe al conectar la PC vieja'),FLEX,
    `<div style="display:flex;gap:12px">${B('Actualizar','pedir_prog',{s:'flex:1'})}${B('Copiar lista','copiar_prog',{c:'pri',s:'flex:1.2'})}</div>`),
-  G(H2('Resumen'),`<div class="kv"><div><label>EN LA PC VIEJA</label><b>${p.viejos}</b></div><div><label>EN ESTA PC</label><b>${p.nuevos}</b></div><div><label>YA ESTÁN</label><b>${p.ya}</b></div><div><label>FALTAN</label><b>${p.faltan.length}</b></div></div>`,
-   sub('Compara por nombre; omite componentes del sistema y runtimes.'))];};
+  G(H2('Instaladores automáticos'),(()=>{const I=D.inst||{lista:[],ruta:''};return (I.lista.length?`<div class="lista" style="flex:1;min-height:60px">${I.lista.map((x,i)=>ROW(!i,DOT(x.instalado?'ok':''),esc(x.nombre),x.mb+' MB'+(x.instalado?' · instalado':'')+(x.args?' · con parámetros':''),SB('Quitar','quitar_inst',{args:[x.nombre]}))).join('')}</div>`:ROW(1,DOT(''),'Todavía no hay instaladores','Pulsa «Agregar» y elige los .msi / .exe de cada PC nueva')+FLEX)+`<div style="display:flex;gap:10px;flex:none">${B('Agregar…','add_inst',{c:'pri',s:'flex:1.2'})}${B('Instalar ahora','instalar_programas',{s:'flex:1',lock:1})}</div>`+sub('Se instalan solos y en silencio al ejecutar la lista final.')})(),
+   `<div class="kv" style="flex:none"><div><label>PC VIEJA</label><b>${p.viejos}</b></div><div><label>ESTA PC</label><b>${p.nuevos}</b></div><div><label>YA ESTÁN</label><b>${p.ya}</b></div><div><label>FALTAN</label><b>${p.faltan.length}</b></div></div>`)];};
 const REPF=()=>{const r=D.rep||{archivos:[],ruta:''};
  return [RELCARD(),
   G(H2('Servicio'),(()=>{const L=(S&&S.rel)||{filas:[],hechos:0,incompletos:0,pendientes:0};return `<div class="kv"><div><label>EQUIPOS</label><b>${L.filas.length}</b></div><div><label>HECHOS</label><b>${L.hechos}</b></div><div><label>INCOMPLETOS</label><b>${L.incompletos}</b></div><div><label>PENDIENTES</label><b>${L.pendientes}</b></div></div>`})(),FLEX,
@@ -338,7 +350,7 @@ const ACTF=()=>{const u=D.upd;
    `<div style="display:flex;gap:12px">${B('Buscar ahora','buscar_upd',{s:'flex:1'})}${B('Actualizar y reiniciar','actualizar_ahora',{c:'pri',s:'flex:1.4',lock:1})}</div>`),
   G(H2('Respaldo de datos'),ROW(1,'','Relación de equipos',esc(((S&&S.rel)||{}).ruta||'')),ROW(0,'','Configuración','config_mainbit.json: junto a la app y en ProgramData'),sub('Si la PC se reinstala, los ajustes se recuperan solos.'))];};
 const AJF=()=>{if(!F.aj)return [G(H2('Ajustes'),cargando),G(H2(' '))];const A_=(k,t)=>LBL(t)+`<input class="inp" data-f="aj.${k}" value="${esc(F.aj[k]==null?'':F.aj[k])}" autocomplete="off" spellcheck="false">`;
- return [G(H2('General'),A_('unidad','UNIDAD ADMINISTRATIVA'),A_('empresa','EMPRESA (M = MAINBIT)'),A_('perfil','PERFIL (D2 / L2; VACÍO = DETECTAR)'),A_('tipo_defecto','TIPO POR DEFECTO EN LA RELACIÓN'),A_('limite_gb','LÍMITE DE MIGRACIÓN (GB)'),A_('destino_backup','CARPETA DE RESPALDO (PC NUEVA)')),
+ return [G(H2('General'),A_('unidad','UNIDAD ADMINISTRATIVA'),A_('empresa','EMPRESA (M = MAINBIT)'),A_('perfil','PERFIL (D2 / L2; VACÍO = DETECTAR)'),A_('tipo_defecto','TIPO POR DEFECTO EN LA RELACIÓN'),A_('limite_gb','LÍMITE DE MIGRACIÓN (GB)'),A_('destino_backup','CARPETA DE RESPALDO (PC NUEVA)'),FLEX,ROW(0,'','Importar de la versión 3.0','Ajustes, relación, instaladores y tipografías',SB('Importar…','importar_v3'))),
   G(H2('Red y servicio'),A_('dominio','DOMINIO'),A_('usuario_dominio','USUARIO DE DOMINIO'),A_('impresora','IMPRESORA DE RED'),ROW(0,'','Instalar la impresora','Solo si el cliente la pide',T(!!F.aj.usar_impresora,'data-f="aj.usar_impresora" data-bool="1"')),A_('fuentes_dir','CARPETA DE TIPOGRAFÍAS'),A_('soporte_contacto','CONTACTO DE SOPORTE (SALE EN EL MANUAL)'),FLEX,B('Guardar ajustes','guardar_ajustes',{c:'pri',s:'padding:15px'}))];};
 const mod=(t,s,f)=>({t,s,get h(){try{return f().join('')}catch(e){return '<div class="glass card"><h2>Error</h2>'+esc(e)+'</div>'}}});
 const MODS=[null,
@@ -367,6 +379,9 @@ const LOCAL={
  async copiar_prog(){if(D.prog){await PY().copiar(D.prog.faltan.join('\n'));toast('Lista copiada')}},
  async copiar_informe(){const t=await PY().datos('informe_soporte');await PY().copiar(t);toast('Informe copiado: pégalo en tu mensaje')},
  async buscar_upd(){D.upd=null;D.upd=await PY().datos("buscar_actualizacion");patchNow()},
+ async add_inst(){await PY().datos('add_instaladores');D.inst=await PY().datos('datos_instaladores');patchNow()},
+ async quitar_inst(n){await PY().datos('quitar_instalador',[n]);D.inst=await PY().datos('datos_instaladores');patchNow()},
+ async importar_v3(){const r=await PY().datos('importar_config_v3');if(!r)return;if(!r.ok){toast(r.msg||'No se pudo importar');return}F.aj=await PY().datos('ajustes_datos');patchNow();toast('Importado: '+r.config+' ajustes'+(r.relacion?' · '+r.relacion.nuevas+' equipos nuevos':'')+(r.instaladores?' · '+r.instaladores+' instaladores':''))},
  pedir_importar(){PY().act('importar_tabla_ruta',['__elegir__'])},
  pedir_pegar(){openOv('pegar')},
  pedir_pendiente(){openOv('pendiente')},
@@ -375,7 +390,7 @@ async function loadMod(m){const k=MODKEY[m];
  if(k==='nuevo'){const d=await PY().datos('wizard_datos');Object.assign(F,d);F.wifi_clave='';F.pin='';F.fuentes_url=F.fuentes_url||''}
  if(k==='imp'){F.fuentes_url=F.fuentes_url||(S&&S.fuentes_url)||''}
  if(k==='mon')D.mon=await PY().datos('datos_monitores');
- if(k==='prog'){D.prog=null;D.prog=await PY().datos('datos_programas')}
+ if(k==='prog'){D.prog=null;D.inst=await PY().datos('datos_instaladores');D.prog=await PY().datos('datos_programas')}
  if(k==='rep')D.rep=await PY().datos('datos_reportes');
  if(k==='lib')D.lib=await PY().datos('datos_liberar');
  if(k==='aj'){F.aj=await PY().datos('ajustes_datos')}
@@ -462,7 +477,7 @@ document.addEventListener('click',e=>{
  el=t.closest('[data-doov]');if(el){doOv(el);return}
  el=t.closest('[data-edit]');if(el){(async()=>{D.edit=await PY().datos('editar_fila_datos',[+el.dataset.edit]);D.editI=+el.dataset.edit;OVK='editar';syncOv()})();return}
  el=t.closest('[data-act]');if(el&&!el.disabled){const a=el.dataset.act;const args=el.dataset.args?JSON.parse(el.dataset.args):[];
-   if(LOCAL[a]){LOCAL[a]();return}
+   if(LOCAL[a]){LOCAL[a](...args);return}
    if(a==='cambiar_modo')return;
    if(a==='toggle_ip_fija'){PY().act(a,args);return}
    PY().act(a,args);return}
@@ -605,7 +620,7 @@ function applyInk(root=document){if(typeof ST==='undefined')return;
     let V=el.classList.contains('glass')?vc.get(el):calc(el);
     const p=el.closest('.glass');if(p&&p!==el){const Vp=vc.has(p)?vc.get(p):calc(p);V=.4*V+.6*Vp}   // los hijos siguen a su tarjeta: sin parpadeos
     avgL(el.getBoundingClientRect());const c0=el._t>.5?.45:.55,t=sst(c0-.04,c0+.04,V);el._t=t;const S=el.style;const rg_=avgL.rng||0,tq=1-sst(.06,.42,ST.a),hk=tq*(.3+.7*sst(.12,.6,rg_));
-    const hc=t>.5?'255,255,255':'0,10,34',hf=x=>(x*hk).toFixed(2);S.setProperty('--sh',hk>.02?`0 0 1px rgba(${hc},${hf(1)}),0 0 3px rgba(${hc},${hf(.95)}),0 0 7px rgba(${hc},${hf(.8)}),0 0 14px rgba(${hc},${hf(.6)}),0 0 24px rgba(${hc},${hf(.35)})`:'none');S.setProperty('--ink',rgba(mixc([255,255,255,1],[8,16,36,.94],t)));
+    const hc=t>.5?'255,255,255':'0,10,34',hf=x=>(x*hk).toFixed(2);S.setProperty('--sh',hk>.02?`0 0 6px rgba(${hc},${hf(.32)}),0 0 16px rgba(${hc},${hf(.18)})`:'none');S.setProperty('--ink',rgba(mixc([255,255,255,1],[8,16,36,.94],t)));
     S.setProperty('--ink2',rgba(mixc([255,255,255,.74+.2*tq],[8,16,36,.66+.26*tq],t)));
     S.setProperty('--ink3',rgba(mixc([255,255,255,.5+.3*tq],[8,16,36,.46+.34*tq],t)));
     S.setProperty('--inkS',rgba(mixc([255,255,255,1],[0,92,220,1],t)));

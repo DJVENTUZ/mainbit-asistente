@@ -79,6 +79,8 @@ class Api:
         return {k: v for k, v in ESTADO_VIDRIO.items()}
 
     def cristal(self, alpha, blur=0, solido=False):
+        if FORZAR:
+            return True
         ESTADO_VIDRIO["alpha"] = max(1, min(250, int(alpha)))
         ESTADO_VIDRIO["blur"] = float(blur)
         ESTADO_VIDRIO["solido"] = bool(solido)
@@ -102,7 +104,7 @@ class Api:
 DATOS = {"ajustes_datos", "ajustes_guardar", "wizard_datos", "wizard_aplicar", "restaurar_opciones",
          "pendientes_lista", "pegar_pendientes_texto", "editar_fila_datos", "editar_fila_guardar",
          "datos_programas", "datos_reportes", "datos_liberar", "datos_monitores", "informe_soporte",
-         "pref_guardar", "elegir_pendiente_idx", "restaurar", "buscar_actualizacion"}
+         "pref_guardar", "datos_instaladores", "importar_config_v3", "add_instaladores", "quitar_instalador", "elegir_pendiente_idx", "restaurar", "buscar_actualizacion"}
 
 
 class Puente:
@@ -139,8 +141,12 @@ class Puente:
 # Cristal REAL: la ventana es transparente de verdad (Windows pone detrás tu escritorio y tus ventanas)
 # ----------------------------------------------------------------------
 GC, GR = 96, 58
-RECETA = os.environ.get("MB_RECETA", "E")      # solo para pruebas del cristal
+RECETA = os.environ.get("MB_RECETA", "E")
+RECETA_A = os.environ.get("MB_RECETA_A", "P")      # receta del acrílico (Sólido / desenfoque)
+FORZAR = os.environ.get("MB_FORZAR", "")           # solo pruebas: "acrilico" fija el estado y la interfaz no lo cambia      # solo para pruebas del cristal
 ESTADO_VIDRIO = {"ok": False, "alpha": 8, "modo": "ninguno", "fondo": "", "blur": 0.0, "solido": False}
+if FORZAR == "acrilico":
+    ESTADO_VIDRIO.update({"alpha": 150, "blur": 30.0})
 LISTO_VIDRIO = threading.Event()
 
 
@@ -175,8 +181,19 @@ def aplicar_vidrio(hwnd, alpha, blur=0.0, solido=False):
         if RECETA in ("C", "G"):
             estado, color = 4, (1 << 24) | (64 << 16) | (32 << 8) | 20
     else:
-        estado = 4
-        color = (max(1, min(200, int(alpha))) << 24) | (64 << 16) | (32 << 8) | 20
+        tinte = (max(1, min(200, int(alpha))) << 24) | (64 << 16) | (32 << 8) | 20
+        estado, color = 4, tinte
+        if RECETA_A == "Q":
+            estado = 3
+        elif RECETA_A in ("R", "S"):
+            estado, color = 0, 0
+            try:
+                v = ctypes.c_int(3)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(v), 4)
+                if RECETA_A == "R":
+                    ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(_MARG(-1, -1, -1, -1)))
+            except Exception:
+                pass
     try:
         ac = _ACCENT(estado, 2, color, 0)
         d = _WCA(19, ctypes.cast(ctypes.pointer(ac), ctypes.c_void_p), ctypes.sizeof(ac))
@@ -368,6 +385,9 @@ def _prueba(w, core):
         w.evaluate_js("setMod(1);showModule(1)")
         time.sleep(2.5)
         res["titulo"] = w.evaluate_js("document.querySelector('#ttl h1').textContent")
+        w.evaluate_js("window.__f=0;(function t(){__f++;requestAnimationFrame(t)})();0")
+        time.sleep(3)
+        res["fps"] = round((w.evaluate_js("window.__f") or 0) / 3, 1)
         res["vidrio"] = ESTADO_VIDRIO["ok"]
         res["vidrio_detalle"] = dict(ESTADO_VIDRIO)
         res["grid"] = w.evaluate_js("typeof GRID!=='undefined'&&GRID.length")

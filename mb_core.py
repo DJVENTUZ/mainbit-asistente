@@ -365,6 +365,91 @@ class Core(A.App):
             del self.rutas_extra[int(i)]
             self.rev += 1
 
+    # ---- instaladores (carpeta junto al .exe, administrada desde la app)
+    def datos_instaladores(self):
+        d = self.dir_instaladores()
+        hechos = self.estado.get("instalados", {})
+        out = []
+        for ruta in SYS.listar_instaladores(d):
+            n = os.path.basename(ruta)
+            out.append({"nombre": n, "mb": round(os.path.getsize(ruta) / 1048576, 1),
+                        "instalado": f"{n}|{os.path.getsize(ruta)}" in hechos,
+                        "args": os.path.isfile(ruta + ".args") or os.path.isfile(os.path.splitext(ruta)[0] + ".args")})
+        return {"ruta": d, "lista": out}
+
+    def add_instaladores(self):
+        import shutil
+        d = self.dir_instaladores()
+        n = 0
+        for f in A.filedialog.askopenfilenames(title="Elige los instaladores (.msi / .exe)"):
+            if f.lower().endswith((".msi", ".exe")):
+                try:
+                    shutil.copy2(f, os.path.join(d, os.path.basename(f)))
+                    n += 1
+                except OSError as e:
+                    self.log(f"No se pudo copiar {os.path.basename(f)}: {e}", "err")
+        if n:
+            self.log(f"{n} instalador(es) agregados a la carpeta Instaladores.", "ok")
+        self.rev += 1
+        return n
+
+    def quitar_instalador(self, nombre):
+        ruta = os.path.join(self.dir_instaladores(), os.path.basename(str(nombre)))
+        if os.path.isfile(ruta):
+            os.remove(ruta)
+            self.rev += 1
+        return True
+
+    # ---- importar la configuración de la versión anterior (3.0)
+    def importar_config_v3(self, ruta="__elegir__"):
+        import shutil
+        if ruta == "__elegir__":
+            ruta = A.filedialog.askdirectory(title="Carpeta MainbitAsistente de la versión 3.0 (la de tu USB)")
+            if not ruta:
+                return None
+        ruta = os.path.abspath(ruta if os.path.isdir(ruta) else os.path.dirname(ruta))
+        base = None
+        for cand in (ruta, os.path.join(ruta, "MainbitAsistente")):
+            if any(os.path.exists(os.path.join(cand, x)) for x in ("config_mainbit.json", "RELACION_EQUIPOS.csv", "RELACION_EQUIPOS.xlsx", "Instaladores")):
+                base = cand
+                break
+        if not base:
+            return {"ok": False, "msg": "En esa carpeta no hay config_mainbit.json ni RELACION_EQUIPOS. Elige la carpeta MainbitAsistente de la v3.0."}
+        res = {"ok": True, "config": 0, "relacion": None, "instaladores": 0, "tipografias": False}
+        cj = os.path.join(base, "config_mainbit.json")
+        if os.path.isfile(cj):
+            vieja = U.leer_json(cj, {}) or {}
+            for k, v in vieja.items():
+                if k in U.DEFAULTS and v not in (None, "") and k != "fuentes_dir":
+                    self.cfg[k] = v
+                    res["config"] += 1
+            U.guardar_config(self.cfg)
+        for nom in ("RELACION_EQUIPOS.csv", "RELACION_EQUIPOS.xlsx"):
+            p = os.path.join(base, nom)
+            if os.path.isfile(p):
+                rep = self.relacion.importar(p)
+                res["relacion"] = {"nuevas": rep.get("nuevas", 0), "completadas": rep.get("completadas", 0)}
+                break
+        di = os.path.join(base, "Instaladores")
+        if os.path.isdir(di):
+            dest = self.dir_instaladores()
+            for ruta_i in SYS.listar_instaladores(di):
+                t = os.path.join(dest, os.path.basename(ruta_i))
+                if not os.path.exists(t):
+                    shutil.copy2(ruta_i, t)
+                    res["instaladores"] += 1
+        for nom in ("Tipografias", "Tipografías"):
+            dt = os.path.join(base, nom)
+            if os.path.isdir(dt):
+                t = os.path.join(U.dir_app(), "Tipografias")
+                if not os.path.isdir(t):
+                    shutil.copytree(dt, t)
+                    res["tipografias"] = True
+                break
+        self.log(f"Importado de la v3.0: {res['config']} ajustes · relación {res['relacion']} · {res['instaladores']} instaladores", "ok")
+        self.rev += 1
+        return res
+
     # ---- diálogos (formularios en la interfaz web)
     def modal(self, tipo, titulo, texto, botones):
         auto = getattr(self.puente, "auto", None)
@@ -737,7 +822,7 @@ class Core(A.App):
         "iniciar_receptor", "cancelar", "cambiar_destino", "buscar", "accion_emisor", "toggle_ip_fija",
         "conectar_wifi", "verificar_red", "sincronizar_hora", "actualizar_hostname", "solo_renombrar",
         "unir_dominio", "chk_dominio", "chk_ivanti", "chk_politicas", "accion_fuentes", "chk_impresora",
-        "chk_clonar_impresoras", "fuentes_desde_internet", "ejecutar_todo", "abrir_instaladores", "instalar_programas", "abrir_restaurar", "restaurar", "guardar_relacion",
+        "chk_clonar_impresoras", "fuentes_desde_internet", "ejecutar_todo", "abrir_instaladores", "instalar_programas", "add_instaladores", "quitar_instalador", "abrir_restaurar", "restaurar", "guardar_relacion",
         "generar_evidencia", "diagnostico_monitores", "verificar_liberar", "generar_manual", "terminar_servicio", "terminar_grupo",
         "add_carpeta", "add_archivos", "quitar_extra", "importar_tabla_ruta", "cambiar_modo", "cambiar_sub",
         "elegir_pendiente_idx", "abrir_ruta", "reiniciar_app", "buscar_actualizacion", "actualizar_ahora",
