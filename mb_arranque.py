@@ -47,7 +47,9 @@ def iniciar(carpeta, puerto=PORT_ARRANQUE):
     class H(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             ruta = self.path.split("?")[0]
-            host = (self.headers.get("Host") or "").split(":")[0]
+            hh = (self.headers.get("Host") or "").split(":")
+            host = hh[0]
+            pto = int(hh[1]) if len(hh) > 1 and hh[1].isdigit() else puerto
             if ruta in ("/", "/index.html"):
                 cuerpo = PAGINA.replace("{HOST}", host).encode("utf-8")
                 self.send_response(200)
@@ -58,7 +60,7 @@ def iniciar(carpeta, puerto=PORT_ARRANQUE):
                 return
             if ruta == "/iniciar.bat":
                 cuerpo = ("@echo off\r\n" + 'powershell -NoProfile -ExecutionPolicy Bypass -Command "' +
-                          comando_vieja(host).replace('"', '\\"') + '"\r\n').encode("utf-8")
+                          comando_vieja(host, pto).replace('"', '\\"') + '"\r\n').encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/octet-stream")
                 self.send_header("Content-Disposition", 'attachment; filename="INICIAR_MAINBIT.bat"')
