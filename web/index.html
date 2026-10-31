@@ -123,7 +123,14 @@ body.real,body.real html{background:transparent!important}body.real .acrylic{bac
 .dlg h2{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);font-weight:700}
 .dtxt{white-space:pre-wrap;font-size:14px;color:var(--ink2);max-height:300px;overflow:auto;line-height:1.5}
 textarea.inp,select.inp{font:500 14px Inter,system-ui}select.inp option{color:#111}
-.page>.glass{overflow:hidden}.row .btn{flex:none}
+.page>.glass{overflow-x:hidden;overflow-y:auto;scrollbar-width:none}.page>.glass::-webkit-scrollbar{display:none}.row .btn{flex:none}
+
+/* ===== ajustes de la versión real ===== */
+body.real .rbg{backdrop-filter:none;background:rgba(var(--tint),.5)}
+body:not(.wiz) .mod[data-n="Nuevo servicio"]{display:none}
+@media (max-height:880px){.app{padding:14px;gap:14px}.main{gap:12px}.card{padding:16px 20px;gap:8px}.row{padding:7px 0}.inp{padding:9px 14px}.btn{padding:10px 20px}.lbl{margin-bottom:3px}.big{font-size:52px}}
+@media (max-height:760px){.app{padding:10px;gap:10px}.main{gap:10px}.card{padding:12px 16px;gap:5px}.row{padding:4px 0}.row .t b{font-size:14px}.inp{padding:7px 12px}.btn{padding:8px 16px;font-size:13px}.big{font-size:44px}.tank{height:110px}}
+@media (max-width:1180px){.app{grid-template-columns:84px 1fr 290px;gap:12px}}
 </style></head><body>
 <canvas id="wall"></canvas><div id="ov"></div><div class="acrylic" id="acr"></div>
 <div class="app">
@@ -428,7 +435,7 @@ async function init2(){
  const p=S.prefs||{};if(p.a!=null){rng.value=p.a;ST.solid=false}
  if(p.solid)setMode(true);else setA(+(rng.value));
  try{const v=await PY().vidrio();setReal(!!(v&&v.ok));setA(+rng.value);sendGlass()}catch(e){setReal(false)}
- const ar=await PY().arranque();if(ar==='nuevo'){setMod(1);showModule(1)}}
+ const ar=await PY().arranque();if(ar==='nuevo'){document.body.classList.add('wiz');setMod(1);showModule(1)}}
 
 /* ---------- eventos ---------- */
 document.addEventListener('click',e=>{

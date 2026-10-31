@@ -139,6 +139,7 @@ class Puente:
 # Cristal REAL: la ventana es transparente de verdad (Windows pone detrás tu escritorio y tus ventanas)
 # ----------------------------------------------------------------------
 GC, GR = 96, 58
+RECETA = os.environ.get("MB_RECETA", "A")      # solo para pruebas del cristal
 ESTADO_VIDRIO = {"ok": False, "alpha": 8, "modo": "ninguno", "fondo": "", "blur": 0.0, "solido": False}
 LISTO_VIDRIO = threading.Event()
 
@@ -161,15 +162,18 @@ def aplicar_vidrio(hwnd, alpha, blur=0.0, solido=False):
     · cristal claro (poco desenfoque): transparencia pura, se ve el escritorio tal cual;
     · cristal con desenfoque: acrílico de Windows con un tinte suave."""
     ok = False
-    try:
-        v = ctypes.c_int(1)                                   # DWMSBT_NONE: sin material propio del sistema
-        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(v), 4)
-    except Exception:
-        pass
+    if RECETA == "A" or solido:
+        try:
+            v = ctypes.c_int(1)                               # DWMSBT_NONE: sin material propio del sistema
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(v), 4)
+        except Exception:
+            pass
     if solido:
         estado, color = 0, 0
     elif blur < 6:
-        estado, color = 2, (1 << 24)                          # transparencia pura
+        estado, color = {"B": (2, 1 << 24), "D": (3, 1 << 24), "E": (2, 1 << 24)}.get(RECETA, (2, 1 << 24))
+        if RECETA == "C":
+            estado, color = 4, (1 << 24) | (64 << 16) | (32 << 8) | 20
     else:
         estado = 4
         color = (max(1, min(200, int(alpha))) << 24) | (64 << 16) | (32 << 8) | 20
@@ -257,7 +261,8 @@ def ajustar_ventana(hwnd, ancho_dis=1380, alto_dis=880):
 
 def preparar_ventana(hwnd):
     try:
-        ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(_MARG(-1, -1, -1, -1)))
+        if RECETA != "E":
+            ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(_MARG(-1, -1, -1, -1)))
         v = ctypes.c_int(1)
         for attr in (20, 19):
             if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), 4) == 0:
