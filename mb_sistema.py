@@ -1192,3 +1192,66 @@ def predeterminar_impresora(nombre):
         return False
     rc, out, _ = ps("(New-Object -ComObject WScript.Network).SetDefaultPrinter(%s); 'MB_OK'" % ps_q(nombre), timeout=30)
     return "MB_OK" in out
+
+
+# ----------------------------------------------------------------------
+# Instaladores en carpeta («Instaladores» junto al .exe): se instalan solos, en silencio
+# ----------------------------------------------------------------------
+SWITCHES_EXE = ["/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-", "/S", "/silent /norestart", "/quiet /norestart",
+                "/s /v\"/qn /norestart\""]
+
+
+def listar_instaladores(carpeta):
+    res = []
+    if not carpeta or not os.path.isdir(carpeta):
+        return res
+    for n in sorted(os.listdir(carpeta), key=str.lower):
+        if n.startswith(("_", ".", "~")):
+            continue
+        if os.path.isfile(os.path.join(carpeta, n)) and n.lower().endswith((".msi", ".exe")):
+            res.append(os.path.join(carpeta, n))
+    return res
+
+
+def _args_propios(ruta):
+    """Si junto al instalador hay «<nombre>.args» (una línea con los parámetros silenciosos), manda ese."""
+    for cand in (ruta + ".args", os.path.splitext(ruta)[0] + ".args"):
+        if os.path.isfile(cand):
+            try:
+                with open(cand, encoding="utf-8-sig") as f:
+                    t = f.read().strip()
+                if t:
+                    return t
+            except OSError:
+                pass
+    return None
+
+
+def _ejecutar_comando(cmd, timeout):
+    kw = {"creationflags": CREATE_NO_WINDOW} if IS_WIN else {}
+    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **kw)
+    try:
+        return p.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        try:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)], capture_output=True, timeout=20, **kw)
+        except Exception:
+            p.kill()
+        return None
+
+
+def instalar_programa(ruta, log=None, timeout=900):
+    """Instala un .msi/.exe en silencio. Devuelve (ok, detalle). Códigos 0 y 3010 (pide reinicio) son éxito."""
+    nombre = os.path.basename(ruta)
+    if ruta.lower().endswith(".msi"):
+        intentos = [f'msiexec /i "{ruta}" /qn /norestart']
+    else:
+        propio = _args_propios(ruta)
+        intentos = [f'"{ruta}" {propio}'] if propio else [f'"{ruta}" {sw}' for sw in SWITCHES_EXE]
+    for cmd in intentos:
+        if log:
+            log(f"{nombre}: {cmd.split('\"')[-1].strip() or 'msiexec'}")
+        rc = _ejecutar_comando(cmd, timeout)
+        if rc in (0, 3010, 1641):
+            return True, "Instalado" + (" (pide reiniciar)" if rc != 0 else "")
+    return False, "No se pudo en silencio: ábrelo a mano o crea «" + nombre + ".args» con sus parámetros silenciosos"

@@ -141,6 +141,19 @@ class App:
         root.protocol("WM_DELETE_WINDOW", self.cerrar)
         root.after(120, self.tick)
         self.en_hilo("info", self._cargar_info)
+        self.dir_instaladores()
+        if os.path.isfile(os.path.join(U.dir_app(), "modo_vieja.flag")):
+            self.seg.seleccionar(1)
+            self.cambiar_modo(1)
+            threading.Thread(target=self._auto_buscar_receptor, daemon=True).start()
+        elif self.estado.get("unido") and not self.estado.get("final_auto"):
+            def _auto_final():
+                time.sleep(10)
+                self.estado["final_auto"] = True
+                self.guardar_estado()
+                self.log("Equipo ya en el dominio: revisando la lista final automáticamente…", "info")
+                self.ui(self.ejecutar_todo)
+            threading.Thread(target=_auto_final, daemon=True).start()
 
     def _ventana(self):
         r = self.root
@@ -431,6 +444,7 @@ class App:
                  ("fuentes", "Tipografías (72 Noto Sans + 3 Patria)", "Instalar", self.accion_fuentes),
                  ("impresora", "Impresora de red", "Conectar", lambda: self.en_hilo("impresora", self.chk_impresora)),
                  ("impvieja", "Impresoras de la PC vieja (clonar)", "Clonar", lambda: self.en_hilo("clonar", self.chk_clonar_impresoras)),
+                 ("programas", "Programas de la carpeta «Instaladores»", "Instalar", lambda: self.en_hilo("instalar", self.instalar_programas)),
                  ("datos", "Datos restaurados al perfil (opcional)", "Restaurar", self.abrir_restaurar)]
         for clave, texto, boton, cmd in filas:
             fr = FilaEstado(a, texto, C["card"], self.f(9), boton, cmd, wrap=250)
@@ -861,9 +875,11 @@ class App:
         elif m == 1:
             if self.estado.get("enviado"):
                 t = "✓ Envío completado. Retira el cable y NO borres nada de esta PC: se conserva 2 días."
+            elif self.v_ip.get():
+                t = "✓ PC nueva encontrada. Pulsa «Enviar a la PC nueva» y espera: no apagues nada hasta que termine."
             else:
-                t = ("Elige qué respaldar y pulsa «Analizar» y luego «Enviar». "
-                     "Antes, activa el receptor en la PC nueva.")
+                t = ("Buscando la PC nueva sola… Revisa que el cable esté conectado y que en la PC nueva "
+                     "esté activo el receptor.")
         else:
             if self.estado.get("unido") or self.info.get("unido"):
                 t = "Paso 3 · Equipo en el dominio. Inicia sesión con el usuario y completa la lista final y el registro."
@@ -896,6 +912,39 @@ class App:
         self.btn_ipfija_n.set_text(t)
         self.btn_ipfija_v.set_text(t)
         self.en_hilo("info", self._cargar_info)
+
+    def _auto_post_recepcion(self):
+        """Tras recibir los datos: WiFi y verificación de red solos, para dejar todo listo para unir al dominio."""
+        try:
+            ssid, clave = self.v_ssid.get().strip(), self.v_pass_wifi.get()
+            if ssid and clave:
+                s2, c2 = SYS.wifi_conectado(ssid)
+                if not (c2 and s2.strip().lower() == ssid.lower()):
+                    self.log(f"Conectando solo al WiFi {ssid}…", "info")
+                    ok, msg = SYS.wifi_conectar(ssid, clave, log=lambda t: self.log(t, "warn"))
+                    self.log(msg, "ok" if ok else "err")
+                    time.sleep(4)
+            self._verificar_red()
+        except Exception as e:
+            self.log(f"Paso automático de red: {e}", "warn")
+
+    def _auto_buscar_receptor(self):
+        """PC vieja (abierta desde la descarga por el cable): busca sola a la PC nueva hasta encontrarla."""
+        t0 = time.time()
+        while time.time() - t0 < 900 and not self.v_ip.get():
+            try:
+                r = M.buscar_receptor()
+            except Exception:
+                r = None
+            if r:
+                self.ui(self.v_ip.set, r[0])
+                self.estado["receptor_ok"] = r[1] or r[0]
+                self.estado_txt(f"PC nueva encontrada: {r[1] or r[0]}", "ok")
+                self.log(f"PC nueva encontrada: {r[1]} en {r[0]}", "ok")
+                self.ui(self.actualizar_banner)
+                return
+            self.estado_txt("Buscando la PC nueva… (cable conectado y receptor activo)", "warn")
+            time.sleep(5)
 
     def conectar_wifi(self):
         ssid, clave = self.v_ssid.get().strip(), self.v_pass_wifi.get()
@@ -983,7 +1032,10 @@ class App:
             try:
                 self.srv_arranque = ARR.iniciar(U.dir_app())
                 ip1 = (SYS.describir_ips() or [("", "")])[0][1]
-                job.log(f"PC vieja sin la app: pega en PowerShell → {ARR.comando_vieja(ip1)}", "info")
+                self.arranque_info = {"url": f"http://{ip1}:{ARR.PORT_ARRANQUE}", "cmd": ARR.comando_vieja(ip1)}
+                if hasattr(self, "rev"):
+                    self.rev += 1
+                job.log(f"PC vieja sin la app: abre el navegador y escribe http://{ip1}:{ARR.PORT_ARRANQUE}", "info")
             except OSError:
                 pass
             job.log(f"Receptor activo · IP {ips} · puerto {M.PORT_TRANSFER}", "info")
@@ -1010,6 +1062,7 @@ class App:
             else:
                 self.ui(messagebox.showinfo, "Migración finalizada", texto + "\n\nSiguiente: pestaña «2 · Dominio».")
             self.ui(self.cambiar_sub, 1)
+            threading.Thread(target=self._auto_post_recepcion, daemon=True).start()
         except M.Cancelado:
             p.fase = "error"
             self.estado_txt("Receptor detenido.", "warn")
@@ -1264,10 +1317,64 @@ class App:
             if carpeta:
                 self.chk_fuentes(carpeta)
             self.chk_impresora()
+            if SYS.listar_instaladores(self.dir_instaladores()):
+                self.instalar_programas()
             self.log("Lista final revisada.", "ok")
             self.estado_txt("Lista final revisada", "ok")
             self.ui(self.actualizar_faltantes)
         self.en_hilo("todo", run)
+
+    def dir_instaladores(self):
+        """Carpeta «Instaladores» junto al .exe: el técnico solo arrastra aquí los .msi/.exe."""
+        d = os.path.join(U.dir_app(), "Instaladores")
+        try:
+            os.makedirs(d, exist_ok=True)
+            ley = os.path.join(d, "LEEME.txt")
+            if not os.path.exists(ley):
+                with open(ley, "w", encoding="utf-8") as f:
+                    f.write("Arrastra aquí los instaladores (.msi o .exe) de los programas que van en cada PC nueva.\n"
+                            "Mainbit los instala solos, en silencio, en orden alfabético (pon 01_, 02_ para ordenar).\n"
+                            "Si algún .exe no se instala en silencio, crea junto a él un archivo con su mismo nombre y\n"
+                            "extensión .args, con una sola línea con sus parámetros silenciosos (ej. /S o /quiet).\n")
+        except OSError:
+            pass
+        return d
+
+    def abrir_instaladores(self):
+        self.abrir_ruta(self.dir_instaladores())
+
+    def instalar_programas(self):
+        d = self.dir_instaladores()
+        archivos = SYS.listar_instaladores(d)
+        fr = self.f_fin["programas"]
+        if not archivos:
+            self.ui(fr.set, "warn", "La carpeta «Instaladores» está vacía. Arrastra ahí los instaladores.")
+            self.log(f"Sin instaladores en {d}", "warn")
+            return
+        hechos = self.estado.setdefault("instalados", {})
+        ok_n, fallos, saltados = 0, [], 0
+        for i, ruta in enumerate(archivos, 1):
+            nombre = os.path.basename(ruta)
+            firma = f"{nombre}|{os.path.getsize(ruta)}"
+            if firma in hechos:
+                saltados += 1
+                continue
+            self.ui(fr.set, "run", f"Instalando {i}/{len(archivos)}: {nombre}…")
+            self.estado_txt(f"Instalando {nombre}…", "warn")
+            ok, det = SYS.instalar_programa(ruta, log=lambda t: self.log(t, None))
+            self.log(f"{nombre}: {det}", "ok" if ok else "err")
+            if ok:
+                ok_n += 1
+                hechos[firma] = datetime.now().isoformat(timespec="seconds")
+                self.guardar_estado()
+            else:
+                fallos.append(nombre)
+        txt = f"{ok_n} instalados" + (f" · {saltados} ya estaban" if saltados else "")
+        if fallos:
+            self.ui(fr.set, "warn", txt + " · revisar a mano: " + ", ".join(fallos))
+        else:
+            self.ui(fr.set, "ok", txt)
+        self.res["instaladores"] = {"ok": ok_n, "ya": saltados, "fallos": fallos}
 
     def abrir_restaurar(self):
         raiz = os.path.join(self.destino, "Users")
@@ -1543,7 +1650,10 @@ class App:
                  "ok" if self.res.get("gpo") else "warn"),
                 ("Tipografías", (f"{fu['presentes']}/{fu['total']} instaladas" if fu else "sin verificar"),
                  "ok" if fu and fu["presentes"] == fu["total"] else "warn"),
-                ("Impresora", imp[1] if imp else "sin verificar", "ok" if imp and imp[0] else "warn")]),
+                ("Impresora", imp[1] if imp else "sin verificar", "ok" if imp and imp[0] else "warn"),
+                ("Programas instalados desde la carpeta", (lambda r: f"{r['ok']} instalados · {r['ya']} ya estaban" +
+                 (" · fallaron: " + ", ".join(r["fallos"]) if r["fallos"] else "") if r else "sin ejecutar")(self.res.get("instaladores")),
+                 "ok" if self.res.get("instaladores") and not self.res["instaladores"]["fallos"] else "warn")]),
             ("PC vieja", [("Hostname", iv.get("host", self.estado.get("host_viejo", "—")), None),
                           ("Serie CPU", iv.get("serie", "—"), None),
                           ("Serie monitor (la etiqueta manda)", self.r_mon_a.get() or "—", None)]),
@@ -1562,7 +1672,7 @@ class App:
         except Exception as e:
             self.log(f"No se pudo generar el manual del usuario: {e}", "warn")
         # reinicio limpio: se borra el avance de ESTE equipo y se relanza el programa (la relación se conserva)
-        for k in ("recibido", "unido", "enviado", "info_vieja", "host_viejo", "transfer", "hostname", "registrado", "restaurado"):
+        for k in ("recibido", "unido", "enviado", "info_vieja", "host_viejo", "transfer", "hostname", "registrado", "restaurado", "final_auto", "instalados", "receptor_ok"):
             self.estado.pop(k, None)
         self.guardar_estado()
         self.ui(messagebox.showinfo, "Servicio terminado", f"Reporte generado:\n{txt}\n\nEl programa se reiniciará.")

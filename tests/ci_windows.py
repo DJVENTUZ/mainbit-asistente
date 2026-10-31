@@ -245,5 +245,30 @@ def _():
     print("INFO impresoras en estado:", len(s["impresoras_vieja"]), "unidades:", s["unidades"])
     c.vivo = False
 
+@prueba("carpeta Instaladores + página de arranque para la PC vieja")
+def _():
+    import urllib.request, mb_arranque as ARR, mb_sistema as SYS
+    d = tempfile.mkdtemp()
+    for n in ("02_b.exe", "01_a.msi", "x.txt", "_ignorado.exe"):
+        open(os.path.join(d, n), "wb").write(b"x")
+    assert [os.path.basename(p) for p in SYS.listar_instaladores(d)] == ["01_a.msi", "02_b.exe"]
+    ok, det = SYS.instalar_programa(os.path.join(d, "02_b.exe"), timeout=20)
+    assert ok is False and "args" in det, (ok, det)               # un archivo falso no se instala y lo dice claro
+    app = tempfile.mkdtemp(); open(os.path.join(app, "a.txt"), "w").write("1")
+    os.makedirs(os.path.join(app, "Instaladores")); open(os.path.join(app, "Instaladores", "grande.exe"), "w").write("1")
+    srv = ARR.iniciar(app, 50123)
+    try:
+        pag = urllib.request.urlopen("http://127.0.0.1:50123/").read().decode("utf-8")
+        assert "iniciar.bat" in pag
+        bat = urllib.request.urlopen("http://127.0.0.1:50123/iniciar.bat").read().decode("utf-8")
+        assert "127.0.0.1:50123/app.zip" in bat and "RunAs" in bat, bat
+        import zipfile, io
+        z = zipfile.ZipFile(io.BytesIO(urllib.request.urlopen("http://127.0.0.1:50123/app.zip").read()))
+        nombres = z.namelist()
+        assert "MainbitAsistente/modo_vieja.flag" in nombres and "MainbitAsistente/a.txt" in nombres, nombres
+        assert not any("Instaladores" in n for n in nombres), nombres
+    finally:
+        srv.shutdown()
+
 print("\nRESUMEN:", "TODO OK" if not fallos else "FALLAN -> " + ", ".join(fallos))
 sys.exit(1 if fallos else 0)
