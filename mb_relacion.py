@@ -5,7 +5,6 @@ import html
 import os
 import re
 import shutil
-import time
 import unicodedata
 import xml.etree.ElementTree as ET
 import zipfile

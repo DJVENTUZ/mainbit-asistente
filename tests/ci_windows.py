@@ -284,5 +284,17 @@ def _():
     assert len(R.Relacion(d).filas) == 0                        # al reabrir sigue vacía (no vuelve la semilla)
     assert len(R.Relacion(dest).filas) == n0                    # y el archivo guarda todo
 
+@prueba("coherencia: acciones de la interfaz web = acciones del núcleo")
+def _():
+    import re, mb_core as K
+    h = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "web", "index.html"), encoding="utf-8").read()
+    usadas = set(re.findall(r"data-act=\"?'?([a-z_0-9]+)", h)) | set(re.findall(r"(?:B|SB|b)\('[^']*','([a-z_0-9]+)'", h)) | set(re.findall(r"act\('([a-z_0-9]+)'", h))
+    ini = h.index("const LOCAL={")
+    locales = set(re.findall(r"^ (?:async )?([a-z_0-9]+)\(", h[ini:ini + 7000], re.M))
+    faltan = usadas - set(K.Core.ACCIONES) - locales
+    assert not faltan, faltan
+    sin_metodo = [a for a in K.Core.ACCIONES if not hasattr(K.Core, a)]
+    assert not sin_metodo, sin_metodo
+
 print("\nRESUMEN:", "TODO OK" if not fallos else "FALLAN -> " + ", ".join(fallos))
 sys.exit(1 if fallos else 0)

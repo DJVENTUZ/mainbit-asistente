@@ -353,6 +353,7 @@ def _hilo_cristal(ventana, titulo):
 def _prueba(w, core):
     """Autoprueba para la compilación automática: la interfaz carga, recibe datos reales y responde."""
     res = {"ok": False}
+    t_ini = time.time()
     try:
         for _ in range(80):
             time.sleep(0.5)
@@ -360,6 +361,7 @@ def _prueba(w, core):
             if v:
                 break
         res["version"] = v
+        res["seg_hasta_datos"] = round(time.time() - t_ini, 1)
         res["glass"] = w.evaluate_js("document.querySelectorAll('.glass').length")
         res["host"] = w.evaluate_js("(S.info&&S.info.host)||''")
         res["modulos"] = w.evaluate_js("document.querySelectorAll('#mods .mod').length")

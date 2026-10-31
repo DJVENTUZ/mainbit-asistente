@@ -217,6 +217,7 @@ const cargando='<div style="color:var(--ink3);font-size:13px;padding:8px 0">Carg
 function P0(){const i=S&&S.info||{},v=S&&S.vieja,ips=(S&&S.ips)||[],cable=ips.find(x=>x.cable)||ips[0];
  return [G(H2('Este equipo'),
    ROW(1,DOT(i.admin?'ok':'err'),esc(((i.fabricante||'')+' '+(i.modelo||'')).trim()||'Equipo'),`Serie CPU ${esc(sv('v_serie','—')||'—')}${i.serie_fuente?' · '+esc(i.serie_fuente):''}`,`<span class="chip">${i.admin?'Administrador':'Sin permisos de administrador'}</span>`),
+   S&&S.equipo?ROW(0,DOT(S.equipo.tipo==='nueva'||S.equipo.tipo==='terminada'?'ok':'warn'),esc(S.equipo.texto),''):'',
    H2('Recibir de la PC vieja'),LBL('IP DE ESTE EQUIPO (CABLE)'),
    cable?`<div class="ip" style="color:var(--accent)">${esc(cable.ip)}</div>${sub(cable.cable?'← escribe esta en la PC vieja':esc(cable.etq))}`:`<div class="ip" style="color:var(--wc,#ff9f0a);font-size:22px">Sin IP: conecta el cable</div>`,
    ips.filter(x=>x!==cable).map(x=>sub(esc(x.etq)+': '+esc(x.ip))).join(''),
@@ -224,7 +225,8 @@ function P0(){const i=S&&S.info||{},v=S&&S.vieja,ips=(S&&S.ips)||[],cable=ips.fi
    S&&S.arranque?`<div class="row"><div class="t"><b>En la PC vieja abre el navegador y escribe:</b><span style="font-size:22px;font-weight:800;color:var(--accent);user-select:text;margin-top:6px">${esc(S.arranque.url)}</span><span>Ahí hay un botón que descarga e inicia todo solo.</span></div><div style="display:flex;flex-direction:column;gap:6px">${SB('Copiar dirección','copiar_url')}${SB('Copiar comando','copiar_cmd')}</div></div>`:'',
    ROW(0,'','Siguiente paso',esc(wt('lbl_banner','—'))),FLEX,
    B(lock()?'Receptor activo…':'Activar receptor','iniciar_receptor',{c:'pri',s:'padding:15px',lock:1})),
-  G(H2('PC vieja detectada'),
+  G(H2('Paso a paso'),GUIA(cable,v).map((p,k)=>ROW(!k,DOT(p.e),p.t,p.s)).join(''),
+   H2('PC vieja detectada'),
    v?ROW(1,DOT('ok'),esc(v.host||'PC vieja'),'usuario en sesión: '+esc(v.usuario||'—')):ROW(1,DOT(''),'Esperando a la PC vieja','Pulsa «Activar receptor» y envía desde la otra PC'),
    v?ROW(0,'','Serie CPU',esc(v.serie||'—')):'',
    v?ROW(0,'','Monitor (confirma con la etiqueta)',esc((v.monitores||[]).map(m=>m.serie).filter(Boolean).join(', ')||'—')):'',
@@ -232,6 +234,15 @@ function P0(){const i=S&&S.info||{},v=S&&S.vieja,ips=(S&&S.ips)||[],cable=ips.fi
    v?ROW(0,'','Impresoras recibidas',`${S.n_imp_vieja} impresoras`):'',
    H2('Cable directo'),
    ROW(1,'','IP fija 192.168.77.2','Solo si el cable no obtiene IP sola',TV_ipfija())) ];}
+function GUIA(cable,v){const f=(S&&S.estado_flags)||{},ar=S&&S.arranque,rec=!!f.recibido,run=S&&S.fase&&S.fase!=='fin'&&S.fase!=='error'&&!rec;
+ const L=[
+  [cable?'ok':'warn','1 · Conecta el cable de red entre las dos PCs',cable?'Cable detectado en esta PC':'Aún no hay cable: conéctalo y espera unos segundos'],
+  [ar?'ok':'','2 · Pulsa «Activar receptor» (abajo, en esta PC)',ar?'Receptor activo':'Deja la USB puesta en esta PC nueva'],
+  [v?'ok':(ar?'warn':''),'3 · En la PC vieja abre el navegador y escribe '+(ar?'<b>'+esc(ar.url)+'</b>':'la dirección que aparecerá aquí'),'Pulsa «Descargar e iniciar» y abre el archivo: la PC vieja no necesita USB ni internet'],
+  [rec?'ok':(run?'warn':''),'4 · En la PC vieja pulsa «Enviar a la PC nueva»',rec?'Datos recibidos y verificados':(run?'Recibiendo… no apagues ni quites el cable':'La app de la PC vieja busca sola a esta PC')],
+  [f.unido?'ok':(rec?'warn':''),'5 · Pestaña «2 · Dominio»: WiFi, verificar red y unir al dominio',rec?'El WiFi y la red se revisan solos al terminar de recibir':'Se habilita al terminar de recibir'],
+  [f.registrado?'ok':(f.unido?'warn':''),'6 · Pestaña «3 · Final»: lista final, registrar y terminar este equipo',f.unido?'Se revisa sola al volver a abrir la app':'']
+ ];return L.map(x=>({e:x[0],t:x[1],s:x[2]}))}
 function TV_ipfija(){return `<div class="tg ${S&&S.ip_fija?'on':''}" data-act="toggle_ip_fija" data-args='["192.168.77.2"]'><i></i></div>`}
 function P1(){const net=['f_red','f_dns','f_dc','f_hora'].map((k,j)=>{const w=(S&&S.w[k])||{};return ROW(j==0,DOT(w.nivel),['Conexión de red','DNS','Controlador de dominio','Hora'][j],esc(w.text||'Sin verificar'),j==3?SB('Sincronizar','sincronizar_hora'):'')}).join('');
  return [G(H2('Nombre del equipo'),`<div class="ip" style="color:var(--accent)">${esc(S?S.hostname:'—')}</div>${sub(esc(wt('lbl_host_ok')))}`,

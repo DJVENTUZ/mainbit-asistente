@@ -20,7 +20,7 @@ import mb_servicio as SV
 import mb_secretos as SEC
 import mainbit_asistente as A
 from mb_relacion import COLUMNAS, Relacion
-from mb_widgets import C, COL
+from mb_widgets import C
 
 _NIVEL_DE_COLOR = {C["green"]: "ok", C["red"]: "err", C["yellow"]: "warn", C["blue"]: "info"}
 VARS_SECRETAS = ("v_pass_dom", "v_pass_wifi")
@@ -726,7 +726,7 @@ class Core(A.App):
             "rel": {"filas": self.relacion.filas, "hechos": h, "incompletos": inc, "pendientes": pn,
                     "ruta": self.relacion.xlsx},
             "modal": self.modal_activo, "vista": getattr(self, "pedir_vista", None),
-            "arranque": getattr(self, "arranque_info", None), "n_instaladores": len(SYS.listar_instaladores(self.dir_instaladores())),
+            "arranque": getattr(self, "arranque_info", None), "equipo": self.clasificar_equipo(), "n_instaladores": len(SYS.listar_instaladores(self.dir_instaladores())),
             "version": U.VERSION_COMPLETA, "es_win": SYS.IS_WIN, "tareas": sorted(self.tareas),
             "logs": [x for x in self.logs if x["n"] > desde_log], "log_seq": self.log_seq,
             "log_gen": getattr(self, "log_gen", 0), "prefs": self.prefs(), "fuentes_url": self.cfg.get("fuentes_url", ""),

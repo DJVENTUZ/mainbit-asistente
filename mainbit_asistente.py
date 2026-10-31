@@ -881,7 +881,12 @@ class App:
                 t = ("Buscando la PC nueva sola… Revisa que el cable esté conectado y que en la PC nueva "
                      "esté activo el receptor.")
         else:
-            if self.estado.get("unido") or self.info.get("unido"):
+            eq = self.clasificar_equipo()
+            if eq["tipo"] == "terminada":
+                t = "✓ Este equipo ya está terminado. Si es otra PC, usa «Terminar este equipo · siguiente PC»."
+            elif eq["tipo"] == "ya_config":
+                t = "⚠ Esta PC ya está en un dominio y no recibió datos con esta app. Confirma que es la correcta."
+            elif self.estado.get("unido") or self.info.get("unido"):
                 t = "Paso 3 · Equipo en el dominio. Inicia sesión con el usuario y completa la lista final y el registro."
             elif self.estado.get("recibido"):
                 t = "Paso 2 · Datos recibidos ✓. Conecta el WiFi, verifica la red y pulsa «Unir al dominio»."
@@ -1323,6 +1328,34 @@ class App:
             self.estado_txt("Lista final revisada", "ok")
             self.ui(self.actualizar_faltantes)
         self.en_hilo("todo", run)
+
+    def clasificar_equipo(self):
+        """¿Qué es esta PC? Nueva sin tocar, en configuración, ya terminada, o la PC vieja (origen)."""
+        try:
+            i = self.info or {}
+            host = (i.get("host") or "").upper()
+            serie = (i.get("serie") or "").strip()
+            if os.path.isfile(os.path.join(U.dir_app(), "modo_vieja.flag")) or getattr(self, "modo", 0) == 1:
+                return {"tipo": "vieja", "texto": "PC vieja (origen de los datos)"}
+            fila = None
+            k = self.relacion.indice_por_serie(serie)
+            if k >= 0:
+                fila = self.relacion.filas[k]
+            est = self.estado
+            if fila and fila.get("Estado") == "Hecho" or est.get("registrado"):
+                return {"tipo": "terminada", "texto": "Equipo ya terminado y registrado en la relación"}
+            if est.get("unido") or i.get("unido"):
+                if est.get("recibido"):
+                    return {"tipo": "proceso", "texto": "En configuración: ya está en el dominio, falta la lista final y el registro"}
+                return {"tipo": "ya_config", "texto": "Ya está en un dominio y no recibió datos con esta app: ¿es la PC correcta?"}
+            if est.get("recibido"):
+                return {"tipo": "proceso", "texto": "En configuración: datos recibidos, falta conectar WiFi y unir al dominio"}
+            if est.get("hostname") or (host and not host.startswith(("DESKTOP-", "LAPTOP-", "WIN-")) and
+                                       host.startswith(str(self.cfg.get("base_hostname", "@@@")).upper()[:4])):
+                return {"tipo": "proceso", "texto": "En configuración: ya tiene el nombre del proyecto"}
+            return {"tipo": "nueva", "texto": "PC nueva sin configurar"}
+        except Exception:
+            return {"tipo": "nueva", "texto": "PC nueva sin configurar"}
 
     def dir_instaladores(self):
         """Carpeta «Instaladores» junto al .exe: el técnico solo arrastra aquí los .msi/.exe."""

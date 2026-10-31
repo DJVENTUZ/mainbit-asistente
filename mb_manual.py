@@ -1,7 +1,7 @@
 """Manual para el usuario: explica, en lenguaje sencillo, dónde quedó cada cosa en su equipo nuevo.
 Se genera en la PC nueva con datos reales del servicio (nada personal vive en el código)."""
 import os, html
-from datetime import datetime, timedelta
+from datetime import datetime
 import mb_util as U
 
 NOMBRES = {"Desktop": "Escritorio", "Documents": "Documentos", "Downloads": "Descargas", "Pictures": "Imágenes",
