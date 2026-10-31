@@ -1,7 +1,7 @@
 import os, sys, time, threading, json, ctypes, platform
 import ctypes.wintypes as wt
 VAR = sys.argv[1]
-if VAR in ("a", "b", "c"):
+if VAR in ("a", "b", "c", "e", "f"):
     os.environ["WEBVIEW2_DEFAULT_BACKGROUND_COLOR"] = "00FFFFFF"
 import webview
 RES = {"var": VAR, "win": platform.version()}
@@ -23,12 +23,16 @@ def trabajo(win):
     RES["hwnd"] = bool(hwnd)
     try:
         v = ctypes.c_int(0); ctypes.windll.dwmapi.DwmIsCompositionEnabled(ctypes.byref(v)); RES["dwm"] = v.value
-        if VAR in ("b", "c", "d"):
+        if VAR in ("b", "c", "d", "e", "f"):
             RES["extend"] = ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(MARG(-1, -1, -1, -1)))
             if VAR == "b":
                 RES["backdrop"] = ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(ctypes.c_int(3)), 4)
             if VAR == "c":
                 RES["accent"] = accent(hwnd, 4, 0x33000000)
+            if VAR == "e":
+                RES["accent"] = accent(hwnd, 4, 0x01000000)
+            if VAR == "f":
+                RES["accent"] = accent(hwnd, 3, 0x00000000)
             if VAR == "d":
                 RES["accent"] = accent(hwnd, 3, 0x00000000)    # blur behind
     except Exception as e:
@@ -44,5 +48,5 @@ def trabajo(win):
     time.sleep(1)
     RES["excluida_margen"] = ImageGrab.grab().getpixel((pt.x + 20, pt.y + 20))
     print("RESULT", json.dumps(RES)); sys.stdout.flush(); os._exit(0)
-w = webview.create_window("spike", html=HTML, width=900, height=500, frameless=(VAR == "a"), transparent=(VAR == "a"))
+w = webview.create_window("spike", html=HTML, width=900, height=500, frameless=(VAR == "a"), transparent=(VAR == "a"), background_color=("#000000" if VAR in ("e","f") else "#FFFFFF"))
 webview.start(trabajo, w)
