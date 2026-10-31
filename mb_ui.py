@@ -78,8 +78,10 @@ class Api:
         LISTO_VIDRIO.wait(6)
         return {k: v for k, v in ESTADO_VIDRIO.items()}
 
-    def cristal(self, alpha):
+    def cristal(self, alpha, blur=0, solido=False):
         ESTADO_VIDRIO["alpha"] = max(1, min(250, int(alpha)))
+        ESTADO_VIDRIO["blur"] = float(blur)
+        ESTADO_VIDRIO["solido"] = bool(solido)
         return True
 
     def arranque(self):
@@ -137,7 +139,7 @@ class Puente:
 # Cristal REAL: la ventana es transparente de verdad (Windows pone detrás tu escritorio y tus ventanas)
 # ----------------------------------------------------------------------
 GC, GR = 96, 58
-ESTADO_VIDRIO = {"ok": False, "alpha": 8, "modo": "ninguno", "fondo": ""}
+ESTADO_VIDRIO = {"ok": False, "alpha": 8, "modo": "ninguno", "fondo": "", "blur": 0.0, "solido": False}
 LISTO_VIDRIO = threading.Event()
 
 
@@ -153,25 +155,39 @@ class _MARG(ctypes.Structure):
     _fields_ = [("l", ctypes.c_int), ("r", ctypes.c_int), ("t", ctypes.c_int), ("b", ctypes.c_int)]
 
 
-def aplicar_vidrio(hwnd, alpha):
-    """Fondo transparente real. Windows 11 (22H2+): material acrílico del sistema; Windows 10/11 anterior: acrílico
-    por composición. Devuelve True si el sistema lo aceptó (el color que se ve detrás lo pone Windows)."""
+def aplicar_vidrio(hwnd, alpha, blur=0.0, solido=False):
+    """Fondo transparente real, con los tres estados del diseño aprobado:
+    · sólido: sin material de Windows (la interfaz pinta fondo opaco);
+    · cristal claro (poco desenfoque): transparencia pura, se ve el escritorio tal cual;
+    · cristal con desenfoque: acrílico de Windows con un tinte suave."""
+    ok = False
     try:
-        v = ctypes.c_int(3)                                   # DWMSBT_TRANSIENTWINDOW = acrílico
-        if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(v), 4) == 0:
+        v = ctypes.c_int(1)                                   # DWMSBT_NONE: sin material propio del sistema
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(v), 4)
+    except Exception:
+        pass
+    if solido:
+        estado, color = 0, 0
+    elif blur < 6:
+        estado, color = 2, (1 << 24)                          # transparencia pura
+    else:
+        estado = 4
+        color = (max(1, min(200, int(alpha))) << 24) | (64 << 16) | (32 << 8) | 20
+    try:
+        ac = _ACCENT(estado, 2, color, 0)
+        d = _WCA(19, ctypes.cast(ctypes.pointer(ac), ctypes.c_void_p), ctypes.sizeof(ac))
+        ok = bool(ctypes.windll.user32.SetWindowCompositionAttribute(wt.HWND(hwnd), ctypes.byref(d)))
+        ESTADO_VIDRIO["modo"] = ("solido", "claro", "acrilico")[0 if solido else (1 if blur < 6 else 2)]
+    except Exception:
+        ok = False
+    if not ok:                                                # respaldo: material de Windows 11
+        try:
+            v = ctypes.c_int(1 if solido else 3)
+            ok = ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(v), 4) == 0
             ESTADO_VIDRIO["modo"] = "win11"
-            return True
-    except Exception:
-        pass
-    try:
-        a = _ACCENT(4, 2, (int(alpha) << 24) | (64 << 16) | (32 << 8) | 20, 0)
-        d = _WCA(19, ctypes.cast(ctypes.pointer(a), ctypes.c_void_p), ctypes.sizeof(a))
-        if ctypes.windll.user32.SetWindowCompositionAttribute(wt.HWND(hwnd), ctypes.byref(d)):
-            ESTADO_VIDRIO["modo"] = "acrilico"
-            return True
-    except Exception:
-        pass
-    return False
+        except Exception:
+            ok = False
+    return ok
 
 
 def _webview_transparente(ventana):
@@ -311,16 +327,16 @@ def _hilo_cristal(ventana, titulo):
     ajustar_ventana(hwnd)
     _webview_transparente(ventana)
     preparar_ventana(hwnd)
-    ESTADO_VIDRIO["ok"] = aplicar_vidrio(hwnd, ESTADO_VIDRIO["alpha"])
+    ESTADO_VIDRIO["ok"] = aplicar_vidrio(hwnd, ESTADO_VIDRIO["alpha"], ESTADO_VIDRIO["blur"], ESTADO_VIDRIO["solido"])
     LISTO_VIDRIO.set()
-    ultimo, aplicado = None, ESTADO_VIDRIO["alpha"]
+    ultimo, aplicado = None, None
     while True:
         time.sleep(0.7)
         try:
-            if ESTADO_VIDRIO["alpha"] != aplicado:
-                aplicado = ESTADO_VIDRIO["alpha"]
-                if ESTADO_VIDRIO["modo"] == "acrilico":
-                    aplicar_vidrio(hwnd, aplicado)
+            cfg = (ESTADO_VIDRIO["alpha"], round(ESTADO_VIDRIO["blur"] / 4), ESTADO_VIDRIO["solido"])
+            if cfg != aplicado:
+                aplicado = cfg
+                aplicar_vidrio(hwnd, ESTADO_VIDRIO["alpha"], ESTADO_VIDRIO["blur"], ESTADO_VIDRIO["solido"])
             g = capturar_detras(hwnd)
             if g and (ultimo is None or sum(abs(a - b) for a, b in zip(g, ultimo)) / len(g) > 0.004):
                 ultimo = g
