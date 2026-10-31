@@ -141,8 +141,6 @@ class Puente:
 # Cristal REAL: la ventana es transparente de verdad (Windows pone detrás tu escritorio y tus ventanas)
 # ----------------------------------------------------------------------
 GC, GR = 96, 58
-RECETA = os.environ.get("MB_RECETA", "E")
-RECETA_A = os.environ.get("MB_RECETA_A", "P")      # receta del acrílico (Sólido / desenfoque)
 FORZAR = os.environ.get("MB_FORZAR", "")           # solo pruebas: "acrilico" fija el estado y la interfaz no lo cambia      # solo para pruebas del cristal
 ESTADO_VIDRIO = {"ok": False, "alpha": 8, "modo": "ninguno", "fondo": "", "blur": 0.0, "solido": False}
 if FORZAR == "acrilico":
@@ -162,52 +160,47 @@ class _MARG(ctypes.Structure):
     _fields_ = [("l", ctypes.c_int), ("r", ctypes.c_int), ("t", ctypes.c_int), ("b", ctypes.c_int)]
 
 
-def aplicar_vidrio(hwnd, alpha, blur=0.0, solido=False):
-    """Fondo transparente real, con los tres estados del diseño aprobado:
-    · sólido: sin material de Windows (la interfaz pinta fondo opaco);
-    · cristal claro (poco desenfoque): transparencia pura, se ve el escritorio tal cual;
-    · cristal con desenfoque: acrílico de Windows con un tinte suave."""
-    ok = False
-    if RECETA == "A" or solido:
-        try:
-            v = ctypes.c_int(1)                               # DWMSBT_NONE: sin material propio del sistema
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(v), 4)
-        except Exception:
-            pass
-    if solido:
-        estado, color = 0, 0
-    elif blur < 6:
-        estado, color = {"B": (2, 1 << 24), "D": (3, 1 << 24), "E": (2, 1 << 24), "F": (3, 1 << 24)}.get(RECETA, (2, 1 << 24))
-        if RECETA in ("C", "G"):
-            estado, color = 4, (1 << 24) | (64 << 16) | (32 << 8) | 20
-    else:
-        tinte = (max(1, min(200, int(alpha))) << 24) | (64 << 16) | (32 << 8) | 20
-        estado, color = 4, tinte
-        if RECETA_A == "Q":
-            estado = 3
-        elif RECETA_A in ("R", "S"):
-            estado, color = 0, 0
-            try:
-                v = ctypes.c_int(3)
-                ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(v), 4)
-                if RECETA_A == "R":
-                    ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(_MARG(-1, -1, -1, -1)))
-            except Exception:
-                pass
+def _backdrop(hwnd, tipo):
+    try:
+        return ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(ctypes.c_int(tipo)), 4) == 0
+    except Exception:
+        return False
+
+
+def _margenes(hwnd, v):
+    try:
+        ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(_MARG(v, v, v, v)))
+    except Exception:
+        pass
+
+
+def _accent(hwnd, estado, color):
     try:
         ac = _ACCENT(estado, 2, color, 0)
         d = _WCA(19, ctypes.cast(ctypes.pointer(ac), ctypes.c_void_p), ctypes.sizeof(ac))
-        ok = bool(ctypes.windll.user32.SetWindowCompositionAttribute(wt.HWND(hwnd), ctypes.byref(d)))
-        ESTADO_VIDRIO["modo"] = ("solido", "claro", "acrilico")[0 if solido else (1 if blur < 6 else 2)]
+        return bool(ctypes.windll.user32.SetWindowCompositionAttribute(wt.HWND(hwnd), ctypes.byref(d)))
     except Exception:
-        ok = False
-    if not ok:                                                # respaldo: material de Windows 11
-        try:
-            v = ctypes.c_int(1 if solido else 3)
-            ok = ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(v), 4) == 0
-            ESTADO_VIDRIO["modo"] = "win11"
-        except Exception:
-            ok = False
+        return False
+
+
+def aplicar_vidrio(hwnd, alpha, blur=0.0, solido=False):
+    """Dos estados de cristal real:
+    · Cristal claro (poco desenfoque): transparencia pura, se ve el escritorio tal cual.
+    · Sólido / con desenfoque: acrílico de Windows (borroso); en Windows 10 se usa el acrílico por composición."""
+    if solido or blur >= 6:
+        _accent(hwnd, 0, 0)
+        if _backdrop(hwnd, 3):                                # DWMSBT_TRANSIENTWINDOW = acrílico de Windows 11
+            _margenes(hwnd, -1)
+            ESTADO_VIDRIO["modo"] = "acrilico"
+            return True
+        tinte = (max(1, min(200, int(alpha))) << 24) | (64 << 16) | (32 << 8) | 20
+        ok = _accent(hwnd, 4, tinte)                          # Windows 10: acrílico por composición
+        ESTADO_VIDRIO["modo"] = "acrilico10"
+        return ok
+    _backdrop(hwnd, 0)
+    _margenes(hwnd, 0)
+    ok = _accent(hwnd, 2, 1 << 24)                            # transparencia pura
+    ESTADO_VIDRIO["modo"] = "claro"
     return ok
 
 
@@ -278,8 +271,6 @@ def ajustar_ventana(hwnd, ancho_dis=1380, alto_dis=880):
 
 def preparar_ventana(hwnd):
     try:
-        if RECETA in ("A", "B", "C", "D"):
-            ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(_MARG(-1, -1, -1, -1)))
         v = ctypes.c_int(1)
         for attr in (20, 19):
             if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), 4) == 0:
