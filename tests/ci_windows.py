@@ -86,7 +86,12 @@ def _():
     def rx():
         try: res["r"] = M.recibir(jr, dst, limite=10 * 1024 ** 3)
         except Exception as e: res["e"] = e
-    threading.Thread(target=rx, daemon=True).start(); time.sleep(1.5)
+    threading.Thread(target=rx, daemon=True).start()
+    import socket as _s
+    for _ in range(60):
+        try: _s.create_connection(("127.0.0.1", M.PORT_TRANSFER), timeout=1).close(); break
+        except OSError: time.sleep(0.5)
+    time.sleep(1)
     sc = M.escanear(js, [os.path.join(b, "Users")])
     env = M.enviar(js, "127.0.0.1", sc, {"host": "VIEJA", "serie": "MJ0TEST1"})
     time.sleep(1); jr.abortar()
