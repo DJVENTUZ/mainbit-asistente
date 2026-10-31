@@ -565,23 +565,57 @@ def wifi_perfil_xml(ssid, clave, wpa3=False):
             "</security></MSM></WLANProfile>")
 
 
-def wifi_conectado():
-    rc, out, _ = run(["netsh", "wlan", "show", "interfaces"], timeout=15)
-    ssid, estado = "", ""
-    for ln in out.splitlines():
-        m = re.match(r"\s*(SSID|Estado|State)\s*:\s*(.+)$", ln)
+def parse_wifi_interfaces(texto):
+    """[(ssid, conectado)] de cada interfaz WiFi en la salida de `netsh wlan show interfaces` (ES/EN)."""
+    res, ssid, estado = [], None, None
+    def cerrar():
+        if ssid is not None or estado is not None:
+            res.append(((ssid or "").strip(), (estado or "").strip().lower() in ("conectado", "connected")))
+    for ln in texto.splitlines():
+        if re.match(r"\s*(Nombre|Name)\s*:", ln):          # empieza una interfaz nueva
+            cerrar(); ssid, estado = None, None
+            continue
+        m = re.match(r"\s*(SSID|Estado|State)\s*:\s*(.*)$", ln)
         if m:
             if m.group(1) in ("Estado", "State"):
-                estado = m.group(2).strip().lower()
-            elif m.group(1) == "SSID" and "BSSID" not in ln:
-                ssid = m.group(2).strip()
-    return ssid, estado in ("conectado", "connected")
+                estado = m.group(2)
+            else:
+                ssid = m.group(2)
+    cerrar()
+    return res
+
+
+def wifi_conectado(ssid_esperado=None):
+    """(ssid, conectado). Con ssid_esperado, busca entre todas las interfaces y compara sin mayúsculas."""
+    rc, out, _ = run(["netsh", "wlan", "show", "interfaces"], timeout=15)
+    ifs = parse_wifi_interfaces(out)
+    if ssid_esperado:
+        for s, ok in ifs:
+            if ok and s.strip().lower() == ssid_esperado.strip().lower():
+                return s, True
+    for s, ok in ifs:
+        if ok:
+            return s, True
+    return (ifs[0][0] if ifs else ""), False
+
+
+def _esperar_wifi(ssid, segundos, log=None):
+    fin = time.time() + segundos
+    while time.time() < fin:
+        s, ok = wifi_conectado(ssid)
+        if ok and s.strip().lower() == ssid.strip().lower():
+            return True
+        time.sleep(2)
+    return False
 
 
 def wifi_conectar(ssid, clave, log=lambda t: None):
     """Crea el perfil WiFi y conecta. El archivo temporal con la clave se borra siempre."""
     if not IS_WIN:
         return False, "Solo en Windows"
+    s, ok = wifi_conectado(ssid)
+    if ok and s.strip().lower() == ssid.strip().lower():
+        return True, f"Ya estaba conectado a {ssid}"
     for wpa3 in (False, True):
         tmp = os.path.join(tempfile.gettempdir(), "mb_wifi_%d.xml" % os.getpid())
         try:
@@ -596,12 +630,13 @@ def wifi_conectar(ssid, clave, log=lambda t: None):
         if rc != 0:
             return False, (out + err).strip() or "No se pudo crear el perfil WiFi"
         run(["netsh", "wlan", "connect", f"name={ssid}"], timeout=20)
-        for _ in range(12):
-            time.sleep(1.5)
-            s, ok = wifi_conectado()
-            if ok and s == ssid:
-                return True, f"Conectado a {ssid}"
+        # La primera conexión en un Windows recién instalado puede tardar: se espera hasta 45 s
+        # ANTES de probar WPA3 (cambiar el perfil a medias cortaba una conexión que sí iba a funcionar).
+        if _esperar_wifi(ssid, 45):
+            return True, f"Conectado a {ssid}"
         log(f"WPA2 no conectó{', probando WPA3' if not wpa3 else ''}…")
+    if _esperar_wifi(ssid, 15):
+        return True, f"Conectado a {ssid}"
     return False, ("No se logró conectar. Revisa que la señal de %s esté disponible y la clave sea correcta" % ssid)
 
 

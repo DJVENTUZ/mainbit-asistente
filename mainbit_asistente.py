@@ -899,6 +899,10 @@ class App:
 
         def run():
             ok, msg = SYS.wifi_conectar(ssid, clave, log=lambda t: self.log(t, "warn"))
+            if not ok:   # el estado REAL manda: a veces conecta justo después del tiempo de espera
+                s2, c2 = SYS.wifi_conectado(ssid)
+                if c2 and s2.strip().lower() == ssid.lower():
+                    ok, msg = True, f"Conectado a {ssid}"
             self.log(msg, "ok" if ok else "err")
             self.estado_txt(msg, "ok" if ok else "err")
             self.ui(lambda: self.en_hilo("info", self._cargar_info))

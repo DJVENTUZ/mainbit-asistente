@@ -123,6 +123,14 @@ def _():
     assert SV.verificar_liberar(t, "VIEJA", D.datetime.now() + D.timedelta(days=3))[0]
     if m and os.path.exists(m): os.remove(m)
 
+
+@prueba("parser de netsh wlan (ES/EN) y consulta real")
+def _():
+    es = "    Nombre : Wi-Fi\n    Estado : conectado\n    SSID : VIP_N\n    BSSID : aa\n"
+    assert SYS.parse_wifi_interfaces(es) == [("VIP_N", True)]
+    assert SYS.parse_wifi_interfaces("    Name : W\n    State : disconnected\n") == [("", False)]
+    return SYS.wifi_conectado("VIP_N")
+
 @prueba("interfaz Tk se construye (modo demo de datos reales)")
 def _():
     import tkinter as tk, mainbit_asistente as A
