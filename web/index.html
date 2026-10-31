@@ -604,7 +604,7 @@ loop.add(dt=>{gw.step(dt);gl.style.width=gw.x+'px'});
 function setOpen(o){open=o;syncSeg();gl.classList.toggle('open',o);gw.t=o?pw1:pw0;gw.v+=o?250:-250;ex.animate([{opacity:o?0:1,transform:o?'translateX(14px)':'none',filter:o?'blur(6px)':'blur(0)'},{opacity:o?1:0,transform:o?'none':'translateX(14px)',filter:o?'blur(0)':'blur(6px)'}],{duration:o?700:260,delay:o?160:0,easing:o?EASE_SOFT:'ease-in',fill:'forwards'})}
 gl.addEventListener('click',e=>{if(!open)setOpen(true);else if(!e.target.closest('.ex'))setOpen(false)});
 document.addEventListener('pointerdown',e=>{if(open&&!e.target.closest('#gl'))setOpen(false)});
-var r0_;function setA(v){ST.a=v/100;const tt_=ST.a/.6;ST.ta=ST.solid?(REAL?1:.9):.01+.26*tt_;r0_=document.documentElement.style;r0_.setProperty('--blur',(ST.solid?0:26*Math.pow(tt_,1.7)).toFixed(1)+'px');const r=document.documentElement.style;r.setProperty('--a',ST.a);r.setProperty('--ta',ST.ta);document.getElementById('rv').textContent=v+'%';applyInk()}
+var r0_;function setA(v){ST.a=v/100;const tt_=ST.a/.6;ST.ta=ST.solid?(REAL?.2:.9):.01+.26*tt_;r0_=document.documentElement.style;r0_.setProperty('--blur',(ST.solid?0:26*Math.pow(tt_,1.7)).toFixed(1)+'px');const r=document.documentElement.style;r.setProperty('--a',ST.a);r.setProperty('--ta',ST.ta);document.getElementById('rv').textContent=v+'%';applyInk()}
 function setMode(solid){ST.solid=solid;[...modeEl.children].forEach((b,i)=>b.classList.toggle('on',!!i===solid));glt.textContent=solid?'Sólido':'Cristal';
   if(solid){rng.dataset.prev=rng.value;rng.value=Math.max(+rng.value,46)}else if(rng.dataset.prev){rng.value=rng.dataset.prev}setA(+rng.value)}
 [...modeEl.children].forEach((b,i)=>b.addEventListener('click',()=>setMode(!!i)));
@@ -616,7 +616,7 @@ setTimeout(()=>{segInit();{const b=rbs[0];rl.x=rl.t=b.offsetLeft;rr.x=rr.t=b.off
 
 bindControls(document);
 
-function sendGlass(){if(REAL&&PY())PY().cristal(ST.solid?255:Math.max(8,Math.round(255*ST.ta*1.6)),ST.solid?0:26*Math.pow(ST.a/.6,1.7),!!ST.solid)}
+function sendGlass(){if(REAL&&PY())PY().cristal(ST.solid?150:Math.max(8,Math.round(255*ST.ta*1.6)),ST.solid?30:26*Math.pow(ST.a/.6,1.7),false)}
 /* ---------- enganches finales ---------- */
 (function(){
  document.addEventListener('contextmenu',e=>e.preventDefault());
