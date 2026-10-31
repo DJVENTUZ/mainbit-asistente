@@ -15,9 +15,16 @@ jobs:
           python-version: "3.12"
       - run: python -m pip install pillow
       - name: Pruebas de funciones de Windows
-        run: python tests/ci_windows.py
-        env:
-          PYTHONIOENCODING: utf-8
+        shell: pwsh
+        run: |
+          $env:PYTHONIOENCODING = "utf-8"
+          python tests/ci_windows.py *> resultado.txt
+          $code = $LASTEXITCODE
+          $t = (Get-Content resultado.txt -Raw -Encoding utf8)
+          if ($t.Length -gt 30000) { $t = $t.Substring(0, 30000) }
+          $t = $t.Replace('%','%25').Replace("`r",'').Replace("`n",'%0A')
+          Write-Output "::notice title=resultado::$t"
+          exit $code
       - name: Captura
         if: always()
         uses: actions/upload-artifact@v4
