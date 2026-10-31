@@ -284,10 +284,12 @@ function PV(){const i=S&&S.info||{};
    sub(esc(wt('lbl_banner'))))];}
 
 /* ---------- Relación ---------- */
-function PR(){const r=(S&&S.rel)||{filas:[],hechos:0,incompletos:0,pendientes:0};
+function RELCARD(){const r=(S&&S.rel)||{filas:[],hechos:0,incompletos:0,pendientes:0};
  const filas=r.filas.map((f,i)=>({f,i}));
  const lista=filas.length?filas.map(({f,i},k)=>`<div class="row ${k?'':'f'} fila" data-edit="${i}" style="cursor:pointer">${DOT(f.Estado==='Hecho'?'ok':f.Estado==='Pendiente'?'':'warn')}<div class="t"><b>${esc(f.Hostname||f['Serie cpu Nuevo']||'Sin equipo')}</b><span>${esc((f['Usuario Nombre']+' '+f.Apellido).trim()||'—')}${f.Estado!=='Hecho'?' · '+esc(f.Estado):''}</span></div></div>`).join(''):ROW(1,'','Aún no hay equipos','Importa una tabla o pega los usuarios pendientes');
- return [`<div class="glass card"><h2>Relación de equipos</h2><div class="lista">${lista}</div>${FLEX}<div style="display:flex;gap:10px">${B('Importar','pedir_importar',{s:'flex:1'})}${B('Pegar pendientes','pedir_pegar',{s:'flex:1.3'})}${B('Abrir carpeta','abrir_ruta',{args:[(r.ruta||'').replace(/[\\/][^\\/]*$/,'')],s:'flex:1.2'})}</div></div>`,
+ return `<div class="glass card"><h2>Relación de equipos · ${filas.length}</h2><div class="lista" style="flex:1;min-height:90px">${lista}</div><div style="display:flex;gap:10px;flex:none">${B('Importar','pedir_importar',{s:'flex:1'})}${B('Pegar pendientes','pedir_pegar',{s:'flex:1.3'})}${B('Abrir carpeta','abrir_ruta',{args:[(r.ruta||'').replace(/[\\/][^\\/]*$/,'')],s:'flex:1.2'})}</div></div>`}
+function PR(){const r=(S&&S.rel)||{filas:[],hechos:0,incompletos:0,pendientes:0};const filas=r.filas;
+ return [RELCARD(),
   G(H2('Resumen del servicio'),`<div class="kv"><div><label>EQUIPOS</label><b>${filas.length}</b></div><div><label>HECHOS</label><b>${r.hechos}</b></div><div><label>INCOMPLETOS</label><b>${r.incompletos}</b></div><div><label>PENDIENTES</label><b>${r.pendientes}</b></div></div>`,
    sub('Se guarda sola en RELACION_EQUIPOS.xlsx junto al programa.'),FLEX,B('Abrir el Excel','abrir_ruta',{args:[r.ruta||''],s:'padding:15px'}))];}
 const ROLEHTML=[null,mk(PV),mk(PR)];
@@ -318,10 +320,10 @@ const PROGF=()=>{const p=D.prog;if(!p)return [G(H2('Programas'),cargando),G(H2('
    `<div style="display:flex;gap:12px">${B('Actualizar','pedir_prog',{s:'flex:1'})}${B('Copiar lista','copiar_prog',{c:'pri',s:'flex:1.2'})}</div>`),
   G(H2('Resumen'),`<div class="kv"><div><label>EN LA PC VIEJA</label><b>${p.viejos}</b></div><div><label>EN ESTA PC</label><b>${p.nuevos}</b></div><div><label>YA ESTÁN</label><b>${p.ya}</b></div><div><label>FALTAN</label><b>${p.faltan.length}</b></div></div>`,
    sub('Compara por nombre; omite componentes del sistema y runtimes.'))];};
-const REPF=()=>{const r=D.rep;if(!r)return [G(H2('Reportes'),cargando),G(H2(' '))];
- return [G(H2('Archivos generados'),r.archivos.length?`<div class="lista">${r.archivos.map((a,i)=>ROW(!i,'',esc(a.nombre),esc(a.carpeta+' · '+a.fecha),SB('Abrir','abrir_ruta',{args:[a.ruta]}))).join('')}</div>`:ROW(1,DOT(''),'Todavía no hay reportes','Se crean con «Generar evidencia» y «Terminar servicio»'),FLEX,B('Abrir la carpeta','abrir_ruta',{args:[r.ruta],s:'padding:15px'})),
+const REPF=()=>{const r=D.rep||{archivos:[],ruta:''};
+ return [RELCARD(),
   G(H2('Servicio'),(()=>{const L=(S&&S.rel)||{filas:[],hechos:0,incompletos:0,pendientes:0};return `<div class="kv"><div><label>EQUIPOS</label><b>${L.filas.length}</b></div><div><label>HECHOS</label><b>${L.hechos}</b></div><div><label>INCOMPLETOS</label><b>${L.incompletos}</b></div><div><label>PENDIENTES</label><b>${L.pendientes}</b></div></div>`})(),FLEX,
-   B('Generar evidencia de este equipo','generar_evidencia',{s:'margin-bottom:10px'}),B('Terminar servicio (todo el grupo de PCs)','terminar_grupo',{c:'pri',s:'color:#fff'}),sub('Cierra el servicio completo: reporte general y asistente de uno nuevo.'))];};
+   ROW(0,'','Reportes generados ('+r.archivos.length+')','Evidencias y cierres guardados en la USB',SB('Abrir carpeta','abrir_ruta',{args:[r.ruta]})),B('Generar evidencia de este equipo','generar_evidencia',{s:'margin:10px 0'}),B('Terminar servicio (todo el grupo de PCs)','terminar_grupo',{c:'pri',s:'color:#fff'}),sub('Cierra el servicio completo: reporte general y asistente de uno nuevo.'))];};
 const LIBF=()=>{const l=D.lib||{};
  return [G(H2('Liberar PC vieja'),ROW(1,DOT(S&&S.estado_flags.enviado?'ok':''),'Envío completado',S&&S.estado_flags.enviado?'Los datos se copiaron y verificaron':'Aún no se ha enviado desde esta PC'),
    ROW(0,'','La app NUNCA borra nada','El borrado es un protocolo manual: espera 2 días y autorización del usuario'),sub(esc(wt('lbl_cierre'))),FLEX,B('Verificar y liberar','verificar_liberar',{c:'pri',s:'padding:15px'})),
