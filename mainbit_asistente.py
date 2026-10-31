@@ -1510,8 +1510,8 @@ class App:
 
     def terminar_servicio(self):
         if not messagebox.askyesno("Terminar servicio",
-                                   "Se generará el reporte final de este equipo y el programa se reiniciará "
-                                   "limpio para el siguiente (la relación se conserva).\n\n¿Continuar?"):
+                                   "Se generará el reporte de ESTE equipo y el programa se reiniciará limpio "
+                                   "para la siguiente PC del mismo servicio (la relación y los ajustes se conservan).\n\n¿Continuar?"):
             return
         self.en_hilo("terminar", self._terminar_servicio)
 
@@ -1566,6 +1566,44 @@ class App:
             self.estado.pop(k, None)
         self.guardar_estado()
         self.ui(messagebox.showinfo, "Servicio terminado", f"Reporte generado:\n{txt}\n\nEl programa se reiniciará.")
+        self.ui(self.abrir_ruta, carpeta)
+        self.ui(self.reiniciar_app, False)      # siguiente PC del mismo servicio: sin asistente
+
+    def terminar_grupo(self):
+        """Cierra el SERVICIO completo (todas las PCs del grupo): reporte general y asistente de uno nuevo."""
+        h, i, pn = self.relacion.resumen()
+        if not messagebox.askyesno("Terminar servicio",
+                                   f"Se cerrará el servicio completo: {len(self.relacion.filas)} equipos "
+                                   f"({h} hechos, {i} incompletos, {pn} pendientes).\n\nSe genera el reporte general y el "
+                                   "programa abre el asistente de un servicio nuevo.\n\n¿Continuar?"):
+            return
+        self.en_hilo("terminar_grupo", self._terminar_grupo)
+
+    def _terminar_grupo(self):
+        h, i, pn = self.relacion.resumen()
+        filas = self.relacion.filas
+        sec = [("Servicio", [("Cliente / proyecto", self.cfg.get("empresa") or "—", None),
+                             ("Dominio", self.cfg.get("dominio") or "—", None),
+                             ("Fecha del cierre", datetime.now().strftime("%d/%m/%Y %H:%M"), None),
+                             ("Equipos en la relación", str(len(filas)), None),
+                             ("Terminados", str(h), "ok"), ("Incompletos", str(i), "warn" if i else None),
+                             ("Pendientes", str(pn), "warn" if pn else None)]),
+               ("Equipos", [(f.get("Hostname") or f.get("Serie cpu Nuevo") or "sin equipo",
+                             f"{(f.get('Usuario Nombre', '') + ' ' + f.get('Apellido', '')).strip() or '—'} · {f.get('Estado', '')}",
+                             "ok" if f.get("Estado") == "Hecho" else "warn") for f in filas])]
+        carpeta = os.path.join(self.relacion.dir, "Reportes")
+        txt, htm = escribir_evidencia(carpeta, "SERVICIO_COMPLETO", "Reporte de todo el servicio", sec)
+        self.log(f"Reporte del servicio: {txt}", "ok")
+        try:
+            self.relacion.guardar()
+        except Exception:
+            pass
+        for k in list(self.estado):
+            if k != "modo":
+                self.estado.pop(k, None)
+        self.guardar_estado()
+        self.ui(messagebox.showinfo, "Servicio terminado", f"Reporte general:\n{txt}\n\nRecuerda: cambia las contraseñas "
+                "usadas y borra credenciales.ini. El programa abrirá el asistente de un servicio nuevo.")
         self.ui(self.abrir_ruta, carpeta)
         self.ui(self.reiniciar_app, True)
 

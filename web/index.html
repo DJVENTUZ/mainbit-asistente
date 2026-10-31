@@ -109,6 +109,7 @@ body{font-family:"Inter","Segoe UI Variable Display","Segoe UI",system-ui,sans-s
 .lens{left:18px;right:18px;width:auto}
 .mod.on{color:var(--inkS)}
 
+body.real,body.real html{background:transparent!important}body.real .acrylic{display:none}body.real #wall{display:none}
 .dot.e{background:var(--red);box-shadow:0 0 14px var(--red)}
 .dot.r{background:var(--amber);box-shadow:0 0 14px var(--amber);animation:pulso 1s ease-in-out infinite}@keyframes pulso{50%{opacity:.3}}
 .btn{white-space:nowrap}.btn[disabled]{opacity:.45;pointer-events:none}
@@ -243,7 +244,7 @@ function P2(){const b=(t,a)=>SB(t,a);
   G(H2('Registro en la relación'),LBL('NOMBRE(S)'),VAR('r_nombre'),LBL('APELLIDO(S)'),VAR('r_apellido'),LBL('TIPO'),VAR('r_tipo'),
    LBL('SERIE CPU ANTERIOR'),VAR('r_cpu_a'),LBL('SERIE MONITOR ANTERIOR'),VAR('r_mon_a'),sub(esc(wt('lbl_faltan'))),FLEX,
    `<div style="display:flex;gap:12px">${B('Elegir pendiente','pedir_pendiente',{s:'flex:1'})}${B('Guardar en la relación','guardar_relacion',{c:'ok',s:'flex:1.4'})}</div>`,
-   B('Terminar servicio · nuevo equipo','terminar_servicio',{s:'color:var(--red)'}))];}
+   B('Terminar este equipo · siguiente PC','terminar_servicio',{s:'color:var(--red)'}))];}
 const mk=f=>({toString(){try{return f().join('')}catch(e){return '<div class="glass card"><h2>Error</h2>'+esc(e)+'</div>'}}});
 const PAGES=[mk(P0),mk(P1),mk(P2)];
 
@@ -300,7 +301,7 @@ const PROGF=()=>{const p=D.prog;if(!p)return [G(H2('Programas'),cargando),G(H2('
 const REPF=()=>{const r=D.rep;if(!r)return [G(H2('Reportes'),cargando),G(H2(' '))];
  return [G(H2('Archivos generados'),r.archivos.length?`<div class="lista">${r.archivos.map((a,i)=>ROW(!i,'',esc(a.nombre),esc(a.carpeta+' · '+a.fecha),SB('Abrir','abrir_ruta',{args:[a.ruta]}))).join('')}</div>`:ROW(1,DOT(''),'Todavía no hay reportes','Se crean con «Generar evidencia» y «Terminar servicio»'),FLEX,B('Abrir la carpeta','abrir_ruta',{args:[r.ruta],s:'padding:15px'})),
   G(H2('Servicio'),`<div class="kv"><div><label>EQUIPOS</label><b>${r.equipos}</b></div><div><label>HECHOS</label><b>${r.hechos}</b></div><div><label>INCOMPLETOS</label><b>${r.incompletos}</b></div><div><label>PENDIENTES</label><b>${r.pendientes}</b></div></div>`,FLEX,
-   B('Generar evidencia de este equipo','generar_evidencia',{c:'pri',s:'margin-bottom:10px'}),B('Manual para el usuario','generar_manual'))];};
+   B('Generar evidencia de este equipo','generar_evidencia',{s:'margin-bottom:10px'}),B('Terminar servicio (todo el grupo de PCs)','terminar_grupo',{c:'pri',s:'color:#fff'}),sub('Cierra el servicio completo: reporte general y asistente de uno nuevo.'))];};
 const LIBF=()=>{const l=D.lib||{};
  return [G(H2('Liberar PC vieja'),ROW(1,DOT(S&&S.estado_flags.enviado?'ok':''),'Envío completado',S&&S.estado_flags.enviado?'Los datos se copiaron y verificaron':'Aún no se ha enviado desde esta PC'),
    ROW(0,'','La app NUNCA borra nada','El borrado es un protocolo manual: espera 2 días y autorización del usuario'),sub(esc(wt('lbl_cierre'))),FLEX,B('Verificar y liberar','verificar_liberar',{c:'pri',s:'padding:15px'})),
@@ -426,7 +427,7 @@ async function poll(){
 async function init2(){
  const p=S.prefs||{};if(p.a!=null){rng.value=p.a;ST.solid=false}
  if(p.solid)setMode(true);else setA(+(rng.value));
- const f=await PY().fondo();if(f){const im=new Image();im.onload=()=>{DESK.img=im;requestDraw()};im.src=f}
+ try{const v=await PY().vidrio();setReal(!!(v&&v.ok));sendGlass()}catch(e){setReal(false)}
  const ar=await PY().arranque();if(ar==='nuevo'){setMod(1);showModule(1)}}
 
 /* ---------- eventos ---------- */
@@ -532,12 +533,12 @@ window.setP=v=>{lvl.t=v};
 const wall=document.getElementById('wall'),wctx=wall.getContext('2d');
 
 var OFF=0,WALL='escritorio';
-function drawWall(name,keep){if(name)WALL=name;name=WALL;const W=innerWidth,H=innerHeight,c=wctx;if(wall.width!==W||wall.height!==H){wall.width=W;wall.height=H}c.clearRect(0,0,W,H);if(name==='escritorio'&&!DESK.img)name='suave';
+function drawWall(name,keep){if(name)WALL=name;name=WALL;const W=innerWidth,H=innerHeight,c=wctx;if(wall.width!==W||wall.height!==H){wall.width=W;wall.height=H}c.clearRect(0,0,W,H);if(name==='escritorio')name='suave';
   const lg=(x0,y0,x1,y1,st)=>{const g=c.createLinearGradient(x0,y0,x1,y1);st.forEach(([o,col])=>g.addColorStop(o,col));return g};
   const rg=(x,y,r,st)=>{const g=c.createRadialGradient(x,y,0,x,y,r);st.forEach(([o,col])=>g.addColorStop(o,col));return g};
   const bands=(cols,w,ang)=>{c.save();c.translate(W/2,H/2);c.rotate(ang);const n=cols.length,P=w*n,x0=((OFF%P)+P)%P;for(let i=-40;i<40;i++){c.fillStyle=cols[((i%n)+n)%n];c.fillRect(i*w+x0-w*n,-H*2,w+1,H*4)}c.restore()};
   const grid=(step,col,lw)=>{c.strokeStyle=col;c.lineWidth=lw;c.beginPath();const o=((OFF%step)+step)%step;for(let x=o;x<W;x+=step){c.moveTo(x,0);c.lineTo(x,H)}for(let y=0;y<H;y+=step){c.moveTo(0,y);c.lineTo(W,y)}c.stroke()};
-  if(name==='escritorio'){drawDesk(c,W,H)}else if(name==='lineas'){bands(['#00c2ff','#ffffff','#ff2d92','#101828','#ffd60a','#f1f5f9','#6d28d9','#30d158'],130,-.62);grid(64,'rgba(0,0,0,.55)',2);
+  if(name==='lineas'){bands(['#00c2ff','#ffffff','#ff2d92','#101828','#ffd60a','#f1f5f9','#6d28d9','#30d158'],130,-.62);grid(64,'rgba(0,0,0,.55)',2);
     c.strokeStyle='#fff';c.lineWidth=8;c.beginPath();c.arc(W*.72+OFF*.3%W*0,H*.3,170,0,7);c.stroke();c.strokeStyle='#000';c.lineWidth=3;c.beginPath();c.arc(W*.72,H*.3,190,0,7);c.stroke()}
   else if(name==='ajedrez'){const z=90,o=((OFF%(z*2))+z*2)%(z*2);for(let y=0;y<H/z+1;y++)for(let x=-2;x<W/z+2;x++){c.fillStyle=(x+y)%2?'#f4f4f4':'#141414';c.fillRect(x*z+o,y*z,z,z)}
     c.fillStyle='#ff2d55';c.fillRect(W*.1,H*.55,W*.35,26);c.fillStyle='#0a84ff';c.fillRect(W*.5,H*.2,26,H*.6)}
@@ -554,11 +555,9 @@ function drawWall(name,keep){if(name)WALL=name;name=WALL;const W=innerWidth,H=in
     blob(.12,.12,.38,'rgba(255,255,255,.95)');blob(.9,.1,.34,'rgba(120,200,255,.9)');blob(.55,.5,.4,'rgba(40,90,255,.85)');blob(.2,.85,.38,'rgba(150,90,255,.85)')}
   if(!keep)sampleGrid()}
 
-var DESK={img:null,px:null,py:0,mw:0,mh:0};
-function drawDesk(c,W,H){const d=window.devicePixelRatio||1,im=DESK.img;let mw=DESK.mw||screen.width*d,mh=DESK.mh||screen.height*d,px=DESK.px==null?(window.screenX||0)*d:DESK.px,py=DESK.px==null?(window.screenY||0)*d:DESK.py;
-  const sc=Math.max(mw/im.width,mh/im.height),ox=(mw-im.width*sc)/2,oy=(mh-im.height*sc)/2;c.drawImage(im,(ox-px)/d,(oy-py)/d,im.width*sc/d,im.height*sc/d)}
-var pendD=0,gridT=0;function requestDraw(){if(pendD)return;pendD=1;requestAnimationFrame(()=>{pendD=0;drawWall(null,true);clearTimeout(gridT);gridT=setTimeout(sampleGrid,140)})}
-window.mbPos=(x,y,w,h)=>{DESK.px=x;DESK.py=y;DESK.mw=w;DESK.mh=h;requestDraw()};
+window.REAL=false;
+window.mbGrid=arr=>{GRID=Float32Array.from(arr);applyInk()};
+function setReal(on){REAL=on;document.body.classList.toggle('real',on);if(on)wall.style.display='none';else{wall.style.display='';drawWall('suave')}}
 var moving=null;
 window.moveWall=(ms,dist)=>new Promise(r=>{const t0=performance.now();let last=0;(function f(t){const k=Math.min(1,(t-t0)/ms),e=k<.5?2*k*k:1-Math.pow(-2*k+2,2)/2;OFF=dist*e;drawWall(null,true);if(t-last>90){last=t;sampleGrid()}k<1?requestAnimationFrame(f):(sampleGrid(),r())})(t0)});
 
@@ -610,6 +609,7 @@ setTimeout(()=>{segInit();{const b=rbs[0];rl.x=rl.t=b.offsetLeft;rr.x=rr.t=b.off
 
 bindControls(document);
 
+function sendGlass(){if(REAL&&PY())PY().cristal(ST.solid?250:Math.max(8,Math.round(255*ST.ta)))}
 /* ---------- enganches finales ---------- */
 (function(){
  document.addEventListener('contextmenu',e=>e.preventDefault());
@@ -618,7 +618,8 @@ bindControls(document);
  const _sm=showModule;showModule=function(m){const b=mcur;_sm(m);if(mcur!==b){loadMod(mcur)}};
  mods.forEach((m,i)=>{});
  let pt;rng.addEventListener('change',()=>{clearTimeout(pt);pt=setTimeout(()=>PY()&&PY().datos('pref_guardar',[{a:+rng.value}]),200)});
- [...modeEl.children].forEach((b,i)=>b.addEventListener('click',()=>PY()&&PY().datos('pref_guardar',[{solid:!!i}])));
+ [...modeEl.children].forEach((b,i)=>b.addEventListener('click',()=>{PY()&&PY().datos('pref_guardar',[{solid:!!i}]);sendGlass()}));
+ rng.addEventListener('input',()=>sendGlass());
  const go=()=>{if(window.pywebview&&window.pywebview.api)poll();else setTimeout(go,150)};
  window.addEventListener('pywebviewready',go);setTimeout(go,600);
 })();

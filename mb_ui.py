@@ -3,7 +3,6 @@
 
 El «cristal» se dibuja con el fondo de escritorio REAL de cada PC (se lee su imagen y se alinea
 con la ventana), así funciona igual en cualquier Windows sin depender de la transparencia del sistema."""
-import base64
 import ctypes
 import ctypes.wintypes as wt
 import json
@@ -20,34 +19,6 @@ TITULO = "Mainbit Toolkit"
 def dir_web():
     base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
     return os.path.join(base, "web")
-
-
-# ----------------------------------------------------------------------
-# Fondo de escritorio
-# ----------------------------------------------------------------------
-def ruta_fondo():
-    if os.name != "nt":
-        return ""
-    buf = ctypes.create_unicode_buffer(520)
-    try:
-        ctypes.windll.user32.SystemParametersInfoW(0x73, 520, buf, 0)      # SPI_GETDESKWALLPAPER
-    except Exception:
-        return ""
-    r = buf.value
-    if r and os.path.isfile(r):
-        return r
-    alt = os.path.join(os.environ.get("APPDATA", ""), "Microsoft", "Windows", "Themes", "TranscodedWallpaper")
-    return alt if os.path.isfile(alt) else ""
-
-
-def fondo_data_url(max_mb=14):
-    r = ruta_fondo()
-    if not r or os.path.getsize(r) > max_mb * 1024 * 1024:
-        return ""
-    ext = os.path.splitext(r)[1].lower()
-    mime = {"png": "image/png", ".png": "image/png", ".bmp": "image/bmp"}.get(ext, "image/jpeg")
-    with open(r, "rb") as f:
-        return f"data:{mime};base64," + base64.b64encode(f.read()).decode()
 
 
 # ----------------------------------------------------------------------
@@ -104,8 +75,12 @@ class Api:
         self._core.responder(mid, valor)
         return True
 
-    def fondo(self):
-        return fondo_data_url()
+    def vidrio(self):
+        return dict(ESTADO_VIDRIO)
+
+    def cristal(self, alpha):
+        ESTADO_VIDRIO["alpha"] = max(1, min(250, int(alpha)))
+        return True
 
     def arranque(self):
         return "nuevo" if "--nuevo" in sys.argv else ""
@@ -159,54 +134,117 @@ class Puente:
 
 
 # ----------------------------------------------------------------------
-# Posición de la ventana → JS (para alinear el fondo)
+# Cristal REAL: la ventana es transparente de verdad (Windows pone detrás tu escritorio y tus ventanas)
 # ----------------------------------------------------------------------
-def _hilo_posicion(ventana, titulo):
+GC, GR = 96, 58
+ESTADO_VIDRIO = {"ok": False, "alpha": 8}
+
+
+class _ACCENT(ctypes.Structure):
+    _fields_ = [("State", ctypes.c_int), ("Flags", ctypes.c_int), ("Gradient", ctypes.c_uint), ("Anim", ctypes.c_int)]
+
+
+class _WCA(ctypes.Structure):
+    _fields_ = [("Attr", ctypes.c_int), ("Data", ctypes.c_void_p), ("Size", ctypes.c_size_t)]
+
+
+class _MARG(ctypes.Structure):
+    _fields_ = [("l", ctypes.c_int), ("r", ctypes.c_int), ("t", ctypes.c_int), ("b", ctypes.c_int)]
+
+
+def aplicar_vidrio(hwnd, alpha):
+    """Acrílico de Windows con un tinte de intensidad `alpha` (1-255). Devuelve True si el sistema lo aceptó."""
+    try:
+        a = _ACCENT(4, 2, (int(alpha) << 24) | (64 << 16) | (32 << 8) | 20, 0)
+        d = _WCA(19, ctypes.cast(ctypes.pointer(a), ctypes.c_void_p), ctypes.sizeof(a))
+        return bool(ctypes.windll.user32.SetWindowCompositionAttribute(hwnd, ctypes.byref(d)))
+    except Exception:
+        return False
+
+
+def preparar_ventana(hwnd):
+    try:
+        ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, ctypes.byref(_MARG(-1, -1, -1, -1)))
+        v = ctypes.c_int(1)
+        for attr in (20, 19):
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), 4) == 0:
+                break
+    except Exception:
+        pass
+
+
+def capturar_detras(hwnd):
+    """Luminancia (96x58) de lo que hay DETRÁS de la ventana. La ventana se excluye de la captura solo
+    durante unos milisegundos, así no afecta a quien esté compartiendo pantalla."""
+    u32, g32 = ctypes.windll.user32, ctypes.windll.gdi32
+    pt = wt.POINT(0, 0)
+    u32.ClientToScreen(hwnd, ctypes.byref(pt))
+    rc = wt.RECT()
+    u32.GetClientRect(hwnd, ctypes.byref(rc))
+    w, h = rc.right - rc.left, rc.bottom - rc.top
+    if w < 50 or h < 50:
+        return None
+    if not u32.SetWindowDisplayAffinity(hwnd, 0x11):          # WDA_EXCLUDEFROMCAPTURE (Windows 10 2004+)
+        return None
+    try:
+        time.sleep(0.03)
+        hdc = u32.GetDC(0)
+        mem = g32.CreateCompatibleDC(hdc)
+        bmp = g32.CreateCompatibleBitmap(hdc, GC, GR)
+        g32.SelectObject(mem, bmp)
+        g32.SetStretchBltMode(mem, 4)                           # HALFTONE
+        g32.StretchBlt(mem, 0, 0, GC, GR, hdc, pt.x, pt.y, w, h, 0x00CC0020)
+        class BMI(ctypes.Structure):
+            _fields_ = [("biSize", wt.DWORD), ("biWidth", wt.LONG), ("biHeight", wt.LONG), ("biPlanes", wt.WORD),
+                        ("biBitCount", wt.WORD), ("biCompression", wt.DWORD), ("biSizeImage", wt.DWORD),
+                        ("x", wt.LONG), ("y", wt.LONG), ("c", wt.DWORD), ("i", wt.DWORD)]
+        bmi = BMI(ctypes.sizeof(BMI), GC, -GR, 1, 32, 0, 0, 0, 0, 0, 0)
+        buf = ctypes.create_string_buffer(GC * GR * 4)
+        g32.GetDIBits(mem, bmp, 0, GR, buf, ctypes.byref(bmi), 0)
+        g32.DeleteObject(bmp)
+        g32.DeleteDC(mem)
+        u32.ReleaseDC(0, hdc)
+    finally:
+        u32.SetWindowDisplayAffinity(hwnd, 0)
+    d = buf.raw
+    lin = lambda v: (v / 255.0) / 12.92 if v <= 10.3 else (((v / 255.0) + 0.055) / 1.055) ** 2.4
+    tabla = [lin(i) for i in range(256)]
+    out = []
+    for k in range(0, GC * GR * 4, 4):
+        out.append(round(0.2126 * tabla[d[k + 2]] + 0.7152 * tabla[d[k + 1]] + 0.0722 * tabla[d[k]], 3))
+    prom = sum(out) / len(out)
+    if prom < 0.004 and max(out) < 0.01:                       # captura negra = no sirvió: no confiar en ella
+        return None
+    return out
+
+
+def _hilo_cristal(ventana, titulo):
     if os.name != "nt":
         return
     u32 = ctypes.windll.user32
-    ultimo = None
-    while True:
-        time.sleep(0.05)
-        try:
-            hwnd = u32.FindWindowW(None, titulo)
-            if not hwnd:
-                continue
-            pt = wt.POINT(0, 0)
-            u32.ClientToScreen(hwnd, ctypes.byref(pt))
-            mon = u32.MonitorFromWindow(hwnd, 2)
-
-            class MI(ctypes.Structure):
-                _fields_ = [("cb", wt.DWORD), ("rcMonitor", wt.RECT), ("rcWork", wt.RECT), ("flags", wt.DWORD)]
-            mi = MI()
-            mi.cb = ctypes.sizeof(MI)
-            u32.GetMonitorInfoW(mon, ctypes.byref(mi))
-            m = mi.rcMonitor
-            pos = (pt.x - m.left, pt.y - m.top, m.right - m.left, m.bottom - m.top)
-            if pos != ultimo:
-                ultimo = pos
-                ventana.evaluate_js(f"window.mbPos&&mbPos({pos[0]},{pos[1]},{pos[2]},{pos[3]})")
-        except Exception:
-            time.sleep(0.5)
-
-
-def _titulo_oscuro(titulo):
-    """Barra de título oscura (y Mica en Windows 11) para que combine con el cristal."""
-    if os.name != "nt":
-        return
-    for _ in range(60):
-        hwnd = ctypes.windll.user32.FindWindowW(None, titulo)
+    hwnd = 0
+    for _ in range(100):
+        hwnd = u32.FindWindowW(None, titulo)
         if hwnd:
-            try:
-                v = ctypes.c_int(1)
-                for attr in (20, 19):
-                    if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(v), 4) == 0:
-                        break
-                ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 38, ctypes.byref(ctypes.c_int(2)), 4)
-            except Exception:
-                pass
-            return
+            break
         time.sleep(0.1)
+    if not hwnd:
+        return
+    preparar_ventana(hwnd)
+    ESTADO_VIDRIO["ok"] = aplicar_vidrio(hwnd, ESTADO_VIDRIO["alpha"])
+    ultimo, aplicado = None, ESTADO_VIDRIO["alpha"]
+    while True:
+        time.sleep(0.7)
+        try:
+            if ESTADO_VIDRIO["alpha"] != aplicado:
+                aplicado = ESTADO_VIDRIO["alpha"]
+                aplicar_vidrio(hwnd, aplicado)
+            g = capturar_detras(hwnd)
+            if g and (ultimo is None or sum(abs(a - b) for a, b in zip(g, ultimo)) / len(g) > 0.004):
+                ultimo = g
+                ventana.evaluate_js("window.mbGrid&&mbGrid(" + json.dumps(g) + ")")
+        except Exception:
+            time.sleep(1.5)
 
 
 def _prueba(w, core):
@@ -225,6 +263,8 @@ def _prueba(w, core):
         w.evaluate_js("setMod(1);showModule(1)")
         time.sleep(2.5)
         res["titulo"] = w.evaluate_js("document.querySelector('#ttl h1').textContent")
+        res["vidrio"] = ESTADO_VIDRIO["ok"]
+        res["grid"] = w.evaluate_js("typeof GRID!=='undefined'&&GRID.length")
         res["ok"] = bool(v) and res["glass"] >= 3 and res["host"] and res["modulos"] == 10 and res["titulo"] == "Nuevo servicio"
     except Exception as e:
         res["error"] = repr(e)
@@ -255,13 +295,12 @@ def main():
     api = Api(core)
     titulo = f"{TITULO}"
     w = webview.create_window(titulo, url=os.path.join(dir_web(), "index.html"), js_api=api,
-                              width=1380, height=880, min_size=(1100, 700), background_color="#0b1020")
+                              width=1380, height=880, min_size=(1100, 700), background_color="#000000")
     puente.ventana = w
     api._ventana = w
 
     def al_iniciar():
-        threading.Thread(target=_titulo_oscuro, args=(titulo,), daemon=True).start()
-        threading.Thread(target=_hilo_posicion, args=(w, titulo), daemon=True).start()
+        threading.Thread(target=_hilo_cristal, args=(w, titulo), daemon=True).start()
         if "--prueba-ui" in sys.argv:
             threading.Thread(target=_prueba, args=(w, core), daemon=True).start()
 

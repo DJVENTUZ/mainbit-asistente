@@ -24,6 +24,8 @@ jobs:
           if ($t.Length -gt 30000) { $t = $t.Substring(0, 30000) }
           $t = $t.Replace('%','%25').Replace("`r",'').Replace("`n",'%0A')
           Write-Output "::notice title=resultado::$t"
+          $r = ((Select-String -Path resultado.txt -Pattern "^(PASS|FAIL|RESUMEN)").Line -join "`n").Replace('%','%25').Replace("`n",'%0A')
+          Write-Output "::notice title=resumen::$r"
           exit $code
       - name: Captura
         if: always()

@@ -737,14 +737,14 @@ class Core(A.App):
         "conectar_wifi", "verificar_red", "sincronizar_hora", "actualizar_hostname", "solo_renombrar",
         "unir_dominio", "chk_dominio", "chk_ivanti", "chk_politicas", "accion_fuentes", "chk_impresora",
         "chk_clonar_impresoras", "fuentes_desde_internet", "ejecutar_todo", "abrir_restaurar", "restaurar", "guardar_relacion",
-        "generar_evidencia", "diagnostico_monitores", "verificar_liberar", "generar_manual", "terminar_servicio",
+        "generar_evidencia", "diagnostico_monitores", "verificar_liberar", "generar_manual", "terminar_servicio", "terminar_grupo",
         "add_carpeta", "add_archivos", "quitar_extra", "importar_tabla_ruta", "cambiar_modo", "cambiar_sub",
         "elegir_pendiente_idx", "abrir_ruta", "reiniciar_app", "buscar_actualizacion", "actualizar_ahora",
         "rellenar_registro", "actualizar_faltantes", "refrescar_unidades", "limpiar_vista",
     }
     # las que se ejecutan en hilo propio (pueden tardar o bloquear con preguntas)
     LENTAS = {"iniciar_receptor", "accion_emisor", "unir_dominio", "solo_renombrar", "terminar_servicio",
-              "guardar_relacion", "restaurar", "importar_tabla_ruta", "cambiar_destino", "add_carpeta",
+              "guardar_relacion", "terminar_grupo", "restaurar", "importar_tabla_ruta", "cambiar_destino", "add_carpeta",
               "add_archivos", "abrir_restaurar", "diagnostico_monitores", "verificar_liberar", "actualizar_ahora",
               "conectar_wifi", "verificar_red", "ejecutar_todo", "chk_dominio", "chk_ivanti", "chk_politicas",
               "chk_clonar_impresoras", "fuentes_desde_internet", "chk_impresora", "accion_fuentes", "generar_evidencia", "generar_manual",
