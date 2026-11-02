@@ -206,6 +206,13 @@ class Ventana:
     def _iniciar(self, al_iniciar=None):
         """Crea la ventana y corre el bucle de mensajes. Devuelve True si se abrió la página, False si no se pudo."""
         log("iniciar: loader=%s url=%s" % (self.loader, self.url))
+        try:                                         # si algo se cuelga o cae, queda el rastro en el registro
+            import faulthandler
+            self._fh = open(os.path.join(os.environ.get("ProgramData", r"C:\\ProgramData"), "MainbitAsistente", "wv2_log.txt"), "a")
+            faulthandler.enable(self._fh)
+            faulthandler.dump_traceback_later(30, repeat=False, file=self._fh)
+        except Exception:
+            pass
         o32.CoInitializeEx(None, 2)
         log("COM listo")
         self._wp = WNDPROC(self._wndproc)
