@@ -220,7 +220,7 @@ def _():
     assert any(c["campo"] == "Tipo" for c in rep["conflictos"]), rep      # D2 vs P03: se conserva D2
     luis = rel.filas[rel.indice_por_serie("ABC12345")]
     assert luis["Tipo"] == "D2" and luis["Serie monitor Nuevo"] == "MON1"
-    assert os.path.exists(rep["copia"]) and "Columna rara" in rep["ignoradas"]
+    assert not rep["copia"] and not [x for x in os.listdir(os.path.dirname(rel.csv)) if "antes_de" in x] and "Columna rara" in rep["ignoradas"]
     n = len(rel.filas); rep2 = rel.importar(p)
     assert rep2["nuevas"] == 0 and len(rel.filas) == n                      # idempotente
     # XLSX generado por la propia app (Tabla 1)
