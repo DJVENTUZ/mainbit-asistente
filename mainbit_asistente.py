@@ -1947,7 +1947,7 @@ class App:
                 SYS.ip_fija_restaurar()
             if self.fw_abierto:
                 SYS.cerrar_firewall()
-            subprocess.Popen(cmd, close_fds=True)
+            subprocess.Popen(cmd, close_fds=True, env=U.entorno_limpio())
             self.root.destroy()
         except Exception as e:
             messagebox.showwarning("Reinicio", f"No se pudo reiniciar solo ({e}). Cierra y abre el programa.")
@@ -2444,11 +2444,21 @@ def _copiar_a_local(L):
         pass
     if not exe:
         return False
-    subprocess.Popen([exe] + [a for a in sys.argv[1:] if a != "--sin-copia"], close_fds=True, cwd=os.path.dirname(exe))
+    subprocess.Popen([exe] + [a for a in sys.argv[1:] if a != "--sin-copia"], close_fds=True, cwd=os.path.dirname(exe), env=U.entorno_limpio())
     return True
 
 
 def main():
+    for flag, limpio in (("--prueba-hijo", True), ("--prueba-hijo-sucio", False)):     # solo para la compilación automática
+        if flag in sys.argv:
+            import subprocess
+            p = subprocess.Popen([sys.executable, "--prueba-ui", "--sin-copia"], close_fds=True,
+                                 env=U.entorno_limpio() if limpio else None)
+            try:
+                p.wait(150)
+            except Exception:
+                p.kill()
+            return
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except Exception:

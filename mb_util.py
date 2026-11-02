@@ -217,3 +217,11 @@ def ruta_segura(base, rel):
 def ultimos5(serie):
     s = "".join(c for c in (serie or "").upper() if c.isalnum())
     return s[-5:]
+
+
+def entorno_limpio():
+    """Entorno para abrir OTRA copia de la app: sin las variables internas de PyInstaller, para que la nueva
+    instancia cargue sus propios archivos (si hereda las de la que la abrió, no encuentra .NET/WebView)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("_PYI") and k != "_MEIPASS2"}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env

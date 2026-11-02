@@ -25,6 +25,14 @@ jobs:
           Write-Host "::notice title=PRUEBA UI::$r"
           if (-not $r -or $r -notmatch '"ok": true') { Write-Host "::error::La interfaz nueva no abrió bien: $r"; exit 1 }
           Remove-Item dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
+          foreach ($m in @("--prueba-hijo-sucio", "--prueba-hijo")) {
+            $q = Start-Process -FilePath dist\MainbitAsistente\MainbitAsistente.exe -ArgumentList $m -PassThru
+            if (-not $q.WaitForExit(200000)) { $q.Kill() }
+            $r2 = Get-Content dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
+            Write-Host "::notice title=INSTANCIA HIJA ($m)::$r2"
+            if ($m -eq "--prueba-hijo" -and (-not $r2 -or $r2 -notmatch '"ok": true')) { Write-Host "::error::La app abierta por otra copia de sí misma no abrió la interfaz nueva: $r2"; exit 1 }
+            Remove-Item dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
+          }
           python -m pip install pillow
           $c = python tests\ci_cristal.py dist\MainbitAsistente\MainbitAsistente.exe E R@acrilico 2>&1 | Out-String
           Write-Host "::notice title=CRISTAL::$c"

@@ -729,7 +729,7 @@ class Core(A.App):
                     f'start "" "{app}\\{exe}"\r\n'
                     f'rmdir /s /q "{tmp}\\x" >nul 2>&1\r\n')
         import subprocess
-        subprocess.Popen(["cmd", "/c", bat], creationflags=0x08000000, close_fds=True)
+        subprocess.Popen(["cmd", "/c", bat], creationflags=0x08000000, close_fds=True, env=U.entorno_limpio())
         self.pedir_cierre()
         return {"ok": True, "msg": "Aplicando…"}
 

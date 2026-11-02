@@ -362,6 +362,8 @@ def _():
     assert r and os.path.isfile(r), r
     assert open(os.path.join(dst, "_internal", "Python.Runtime.dll")).read() == "3.0.5"      # idéntica a la de la USB
     assert not os.path.exists(os.path.join(dst, "_internal", "resto_viejo.dll"))              # sin restos
+    os.environ["_PYI_APPLICATION_HOME_DIR"] = "X"; e = U.entorno_limpio(); del os.environ["_PYI_APPLICATION_HOME_DIR"]
+    assert not any(k.startswith("_PYI") for k in e) and e["PYINSTALLER_RESET_ENVIRONMENT"] == "1"
     assert open(os.path.join(dst, "Reportes", "r.txt")).read() == "dato" and os.path.exists(os.path.join(dst, "RELACION_EQUIPOS.csv"))   # datos intactos
 
 print("\nRESUMEN:", "TODO OK" if not fallos else "FALLAN -> " + ", ".join(fallos))
