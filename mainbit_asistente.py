@@ -2498,7 +2498,8 @@ def main():
     if motivo:
         raiz.after(900, lambda: messagebox.showwarning(
             "Interfaz clásica",
-            "No se pudo abrir la interfaz nueva, por eso ves la clásica. Tus datos están intactos.\n\n"
+            "No se pudo abrir la interfaz nueva, por eso ves la clásica. Tus datos están intactos.\n\n" +
+            ("LA CARPETA DEL PROGRAMA TIENE ARCHIVOS DE VARIAS VERSIONES MEZCLADOS (%s).\nBorra la carpeta «_internal» dentro de %s y vuelve a ejecutar ACTUALIZAR_USB.bat.\n\n" % (", ".join(U.mezcla_de_versiones()[:4]), U.dir_app()) if U.mezcla_de_versiones() else "") +
             "Detalle (mándamelo):\n" + motivo[-600:] + "\n\nGuardado en:\n" + os.path.join(U.dir_datos(), "arranque_error.txt")))
     if "--nuevo" in sys.argv:
         raiz.after(700, app.wizard_nuevo)

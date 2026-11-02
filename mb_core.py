@@ -725,6 +725,7 @@ class Core(A.App):
                     f'rmdir /s /q "{tmp}\\x" >nul 2>&1\r\n'
                     f'powershell -NoProfile -Command "Expand-Archive -LiteralPath \'{z}\' -DestinationPath \'{tmp}\\x\' -Force"\r\n'
                     f'if not exist "{tmp}\\x\\MainbitAsistente\\{exe}" exit /b 1\r\n'
+                    f'rmdir /s /q "{app}\\_internal" >nul 2>&1\r\n'
                     f'robocopy "{tmp}\\x\\MainbitAsistente" "{app}" /E /R:10 /W:2 /NFL /NDL /NJH /NJS /NP >nul\r\n'
                     f'start "" "{app}\\{exe}"\r\n'
                     f'rmdir /s /q "{tmp}\\x" >nul 2>&1\r\n')

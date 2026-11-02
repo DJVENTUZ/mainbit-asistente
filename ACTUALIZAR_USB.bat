@@ -13,6 +13,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
  "Write-Host ('Descargando ultima version -> '+$d);" ^
  "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;" ^
  "Invoke-WebRequest -UseBasicParsing -Uri 'https://github.com/%REPO%/releases/download/latest/MainbitAsistente.zip' -OutFile $zip;" ^
+ "Write-Host 'Limpiando archivos viejos del programa (tus datos no se tocan)...';" ^
+ "$app=($d+'MainbitAsistente');" ^
+ "Get-Process MainbitAsistente -ErrorAction SilentlyContinue | Stop-Process -Force;" ^
+ "if(Test-Path ($app+'\_internal')){ Remove-Item ($app+'\_internal') -Recurse -Force };" ^
+ "if(Test-Path ($app+'\MainbitAsistente.exe')){ Remove-Item ($app+'\MainbitAsistente.exe') -Force };" ^
  "Expand-Archive -Path $zip -DestinationPath $d -Force;" ^
  "Remove-Item $zip -Force;" ^
  "Write-Host 'LISTO: USB actualizada. Ejecuta '$d'MainbitAsistente\MainbitAsistente.exe' -ForegroundColor Green"

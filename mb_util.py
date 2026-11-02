@@ -225,3 +225,18 @@ def entorno_limpio():
     env = {k: v for k, v in os.environ.items() if not k.startswith("_PYI") and k != "_MEIPASS2"}
     env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
     return env
+
+
+def mezcla_de_versiones():
+    """Nombres de paquetes con más de una versión dentro de _internal (señal de una carpeta mezclada por actualizaciones viejas)."""
+    d = os.path.join(dir_app(), "_internal")
+    vistos, dup = {}, []
+    try:
+        for n in os.listdir(d):
+            if n.lower().endswith(".dist-info"):
+                base = n[:-10].rsplit("-", 1)[0].lower().replace("-", "_")
+                vistos[base] = vistos.get(base, 0) + 1
+        dup = sorted(k for k, v in vistos.items() if v > 1)
+    except OSError:
+        pass
+    return dup
