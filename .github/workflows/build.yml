@@ -19,11 +19,19 @@ jobs:
           python -m pip install --upgrade pyinstaller cryptography pywebview
           Set-Content -Encoding utf8 mb_build.py ('BUILD = "' + '${{ github.sha }}'.Substring(0,7) + ' ' + (Get-Date -Format 'dd-MMM HH:mm') + '"')
           python -m PyInstaller --noconfirm --clean --onedir --windowed --uac-admin --collect-all webview --collect-all pythonnet --collect-all clr_loader --hidden-import clr --add-data "web;web" --name MainbitAsistente mainbit_asistente.py
+          # WebView2Loader.dll (firmada por Microsoft) para abrir la interfaz sin pythonnet
+          Invoke-WebRequest -UseBasicParsing -Uri "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.2592.51" -OutFile wv2.zip
+          Expand-Archive wv2.zip -DestinationPath wv2pkg -Force
+          $ld = Get-ChildItem -Recurse wv2pkg -Filter WebView2Loader.dll | Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1
+          if (-not $ld) { Write-Host "::error::No se encontró WebView2Loader.dll x64"; exit 1 }
+          Copy-Item $ld.FullName dist\MainbitAsistente\_internal\WebView2Loader.dll
+          Write-Host "::notice title=LOADER::$($ld.FullName) firma: $((Get-AuthenticodeSignature $ld.FullName).Status)"
           $p = Start-Process -FilePath dist\MainbitAsistente\MainbitAsistente.exe -ArgumentList "--prueba-ui" -PassThru
           if (-not $p.WaitForExit(120000)) { $p.Kill() }
           $r = Get-Content dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
           Write-Host "::notice title=PRUEBA UI::$r"
           if (-not $r -or $r -notmatch '"ok": true') { Write-Host "::error::La interfaz nueva no abrió bien: $r"; exit 1 }
+          if ($r -notmatch '"motor": "wv2"') { Write-Host "::error::No usó el motor WebView2 directo: $r"; exit 1 }
           Remove-Item dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
           foreach ($m in @("--prueba-hijo-sucio", "--prueba-hijo")) {
             $q = Start-Process -FilePath dist\MainbitAsistente\MainbitAsistente.exe -ArgumentList $m -PassThru
@@ -33,6 +41,17 @@ jobs:
             if ($m -eq "--prueba-hijo" -and (-not $r2 -or $r2 -notmatch '"ok": true')) { Write-Host "::error::La app abierta por otra copia de sí misma no abrió la interfaz nueva: $r2"; exit 1 }
             Remove-Item dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
           }
+          # Equipo que bloquea pythonnet/cffi (Control de aplicaciones): la interfaz nueva debe abrir igual
+          Remove-Item dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
+          $env:MB_BLOQUEAR_PYTHONNET = "1"
+          $b = Start-Process -FilePath dist\MainbitAsistente\MainbitAsistente.exe -ArgumentList "--prueba-ui","--sin-copia" -PassThru
+          if (-not $b.WaitForExit(150000)) { $b.Kill() }
+          Remove-Item env:MB_BLOQUEAR_PYTHONNET -ErrorAction SilentlyContinue
+          $rb = Get-Content dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
+          $eb = Get-Content "$env:ProgramData\MainbitAsistente\arranque_error.txt" -Raw -ErrorAction SilentlyContinue
+          Write-Host "::notice title=SIN PYTHONNET::probe=$rb || error=$eb"
+          if (-not $rb -or $rb -notmatch '"ok": true' -or $rb -notmatch '"motor": "wv2"') { Write-Host "::error::Con pythonnet bloqueado la interfaz nueva no abrió: $rb $eb"; exit 1 }
+          Remove-Item dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
           # Simula un equipo SIN .NET Core (como el del técnico): no debe impedir la interfaz nueva
           Remove-Item "$env:ProgramData\MainbitAsistente\arranque_error.txt" -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path C:\sin_dotnet | Out-Null

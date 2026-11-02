@@ -115,9 +115,30 @@ class Puente:
         self.ventana = None
 
     def archivos(self, tipo, titulo, tipos=None):
-        import webview
         if not self.ventana:
             return []
+        if not hasattr(self.ventana, "create_file_dialog"):
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+                r = tk.Tk()
+                r.withdraw()
+                r.attributes("-topmost", True)
+                try:
+                    if tipo == "carpeta":
+                        x = filedialog.askdirectory(title=titulo)
+                        out = [x] if x else []
+                    elif tipo == "archivo":
+                        x = filedialog.askopenfilename(title=titulo, filetypes=[("Tablas", "*.csv *.xlsx *.xlsm *.txt"), ("Todos", "*.*")])
+                        out = [x] if x else []
+                    else:
+                        out = list(filedialog.askopenfilenames(title=titulo))
+                finally:
+                    r.destroy()
+                return out
+            except Exception:
+                return []
+        import webview
         try:
             FD = getattr(webview, "FileDialog", None)
             modo = {"carpeta": getattr(FD, "FOLDER", None) if FD else getattr(webview, "FOLDER_DIALOG", 20),
@@ -212,7 +233,7 @@ def _ajustar_zoom(ventana, hwnd):
     """Si la ventana es más chica que el diseño (1240×760 px lógicos), se reduce el zoom de la página para que TODO quepa."""
     try:
         wv = _WV[0]
-        if wv is None:
+        if wv is None and not hasattr(ventana, "set_zoom"):
             return
         u32 = ctypes.windll.user32
         rc = wt.RECT()
@@ -227,8 +248,11 @@ def _ajustar_zoom(ventana, hwnd):
         z = max(0.5, min(1.0, w / 1240.0, h / 760.0))
         if abs(z - ZOOM["z"]) < 0.02:
             return
-        from System import Action
         ZOOM["z"] = z
+        if hasattr(ventana, "set_zoom"):
+            ventana.set_zoom(z)
+            return
+        from System import Action
         ventana.native.Invoke(Action(lambda: setattr(wv, "ZoomFactor", float(z))))
     except Exception:
         pass
@@ -236,6 +260,9 @@ def _ajustar_zoom(ventana, hwnd):
 
 def _webview_transparente(ventana):
     """pywebview pinta el WebView2 con color sólido; aquí se cambia a transparente para ver el vidrio de Windows."""
+    if hasattr(ventana, "transparente"):
+        ESTADO_VIDRIO["fondo"] = "transparente" if ventana.transparente() else "sin control"
+        return
     try:
         import System.Drawing as D
         from System import Action
@@ -392,7 +419,7 @@ def _hilo_cristal(ventana, titulo):
 
 def _prueba(w, core):
     """Autoprueba para la compilación automática: la interfaz carga, recibe datos reales y responde."""
-    res = {"ok": False}
+    res = {"ok": False, "motor": "wv2" if hasattr(w, "set_zoom") else "pywebview"}
     t_ini = time.time()
     try:
         for _ in range(80):
@@ -430,36 +457,66 @@ def disponible():
     """¿Se puede abrir la interfaz nueva en este equipo?"""
     if os.name != "nt":
         return False
-    try:
-        import webview  # noqa
-    except Exception:
-        return False
     return os.path.isfile(os.path.join(dir_web(), "index.html"))
 
 
+def _url_pagina():
+    import pathlib
+    return pathlib.Path(os.path.join(dir_web(), "index.html")).as_uri()
+
+
 def main():
-    import pythonnet
-    fallos = []
-    for spec in (None, "netfx", "coreclr"):      # el que funcione en este equipo
-        try:
-            pythonnet.load(spec) if spec else pythonnet.load()
-            fallos = []
-            break
-        except Exception as e:
-            cadena, x = [], e
-            while x is not None and len(cadena) < 4:
-                cadena.append(f"{type(x).__name__}: {str(x).strip()[:160]}")
-                x = x.__cause__ or x.__context__
-            fallos.append(f"[{spec or 'default'}] " + " <- ".join(cadena))
-    if fallos:
-        raise RuntimeError("NO CARGA .NET | " + " || ".join(fallos))
-    import webview
+    if os.environ.get("MB_BLOQUEAR_PYTHONNET"):          # prueba: simula un equipo que bloquea pythonnet/cffi (sin firma)
+        for m in ("pythonnet", "clr", "clr_loader", "_cffi_backend", "cffi", "webview"):
+            sys.modules[m] = None
     import mb_core
-    os.environ.setdefault("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000")   # el contenido web no pinta fondo propio
     puente = Puente()
     core = mb_core.Core(puente)
     api = Api(core)
     titulo = f"{TITULO}"
+    motivos = []
+
+    # 1) WebView2 directo (solo componentes firmados: funciona aunque Windows bloquee pythonnet)
+    try:
+        import mb_wv2
+        v = mb_wv2.Ventana(titulo, _url_pagina(), api, 1380, 880, datos_dir=os.path.join(U.dir_datos(), "webview2"),
+                           al_cerrar=lambda: core._limpiar())
+        puente.ventana = v
+        api._ventana = v
+
+        def al_iniciar_v():
+            threading.Thread(target=_hilo_cristal, args=(v, titulo), daemon=True).start()
+            if "--prueba-ui" in sys.argv:
+                threading.Thread(target=_prueba, args=(v, core), daemon=True).start()
+        if v.iniciar(al_iniciar_v):
+            core._limpiar()
+            core.vivo = False
+            return
+        motivos.append("WebView2 directo: " + str(v.error))
+    except Exception as e:
+        motivos.append("WebView2 directo: " + repr(e)[:300])
+
+    # 2) respaldo: pywebview + pythonnet
+    try:
+        import pythonnet
+        fallos = []
+        for spec in (None, "netfx", "coreclr"):      # el que funcione en este equipo
+            try:
+                pythonnet.load(spec) if spec else pythonnet.load()
+                fallos = []
+                break
+            except Exception as e:
+                cadena, x = [], e
+                while x is not None and len(cadena) < 4:
+                    cadena.append(f"{type(x).__name__}: {str(x).strip()[:160]}")
+                    x = x.__cause__ or x.__context__
+                fallos.append(f"[{spec or 'default'}] " + " <- ".join(cadena))
+        if fallos:
+            raise RuntimeError("NO CARGA .NET | " + " || ".join(fallos))
+        import webview
+    except Exception as e:
+        raise RuntimeError(" || ".join(motivos) + " || pywebview: " + str(e)[:700])
+    os.environ.setdefault("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000")   # el contenido web no pinta fondo propio
     w = webview.create_window(titulo, url=os.path.join(dir_web(), "index.html"), js_api=api,
                               width=1380, height=880, min_size=(900, 560), background_color="#000000")
     puente.ventana = w
