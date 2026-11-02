@@ -28,6 +28,7 @@ if os.name == "nt":
     u32.PostMessageW.argtypes = [wt.HWND, ctypes.c_uint, wt.WPARAM, wt.LPARAM]
     u32.GetClientRect.argtypes = [wt.HWND, ctypes.POINTER(wt.RECT)]
     k32.GetModuleHandleW.restype = wt.HMODULE
+    ctypes.windll.gdi32.GetStockObject.restype = ctypes.c_void_p
     u32.LoadCursorW.restype = ctypes.c_void_p
     k32.LoadLibraryW.restype = ctypes.c_void_p
 
@@ -162,8 +163,6 @@ class Ventana:
             if msg == WM_SETFOCUS and self.controller:
                 _met(self.controller, 12, HRESULT, ctypes.c_int)(self.controller, 0)
                 return 0
-            if msg == WM_ERASEBKGND:
-                return 1
             if msg == WM_GETMINMAXINFO:
                 try:
                     esc = u32.GetDpiForWindow(hwnd) / 96.0
@@ -221,7 +220,7 @@ class Ventana:
         wc.lpfnWndProc = self._wp
         wc.hInstance = k32.GetModuleHandleW(None)
         wc.hCursor = u32.LoadCursorW(None, ctypes.c_void_p(32512))
-        wc.hbrBackground = None
+        wc.hbrBackground = ctypes.windll.gdi32.GetStockObject(4)      # pincel negro: como el fondo de la ventana anterior (necesario para el vidrio)
         wc.lpszClassName = clase
         if not u32.RegisterClassW(ctypes.byref(wc)) and ctypes.GetLastError() != 1410:
             raise OSError("RegisterClass falló")
@@ -230,7 +229,7 @@ class Ventana:
             esc = ctypes.windll.shcore.GetScaleFactorForDevice(0) / 100.0
         except Exception:
             esc = 1.0
-        self.hwnd = u32.CreateWindowExW(0, clase, self.titulo, 0x00CF0000 | 0x10000000, -2147483648, -2147483648,
+        self.hwnd = u32.CreateWindowExW(0, clase, self.titulo, 0x00CF0000 | 0x10000000 | 0x02000000, -2147483648, -2147483648,
                                         int(self.ancho * esc), int(self.alto * esc), None, None, wc.hInstance, None)
         log("ventana creada hwnd=%s" % self.hwnd)
         if not self.hwnd:
