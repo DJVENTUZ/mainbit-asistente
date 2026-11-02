@@ -439,6 +439,8 @@ def disponible():
 
 def main():
     os.environ["PYTHONNET_RUNTIME"] = "netfx"
+    import pythonnet
+    pythonnet.load("netfx")          # explícito: el .NET Framework que trae Windows (sin depender de variables de entorno)
     import webview
     import mb_core
     os.environ.setdefault("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000")   # el contenido web no pinta fondo propio

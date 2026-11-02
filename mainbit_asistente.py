@@ -2474,6 +2474,11 @@ def main():
         except Exception as e:      # sin WebView2 u otro problema: se abre la interfaz clásica
             import traceback
             motivo = traceback.format_exc()
+            try:
+                import importlib.metadata as _md
+                motivo += "\n[pythonnet %s · PYTHONNET_RUNTIME=%r · app=%s]" % (_md.version("pythonnet"), os.environ.get("PYTHONNET_RUNTIME"), U.dir_app())
+            except Exception:
+                pass
         try:
             with open(os.path.join(U.dir_datos(), "arranque_error.txt"), "w", encoding="utf-8") as f:
                 f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\nCarpeta: {U.dir_app()}\n{motivo}")
