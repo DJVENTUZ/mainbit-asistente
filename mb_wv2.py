@@ -196,9 +196,18 @@ class Ventana:
 
     # ------------------------------------------------------------ arranque
     def iniciar(self, al_iniciar=None):
+        try:
+            return self._iniciar(al_iniciar)
+        except BaseException:
+            import traceback
+            log("EXCEPCION en iniciar: " + traceback.format_exc()[-900:])
+            raise
+
+    def _iniciar(self, al_iniciar=None):
         """Crea la ventana y corre el bucle de mensajes. Devuelve True si se abrió la página, False si no se pudo."""
         log("iniciar: loader=%s url=%s" % (self.loader, self.url))
         o32.CoInitializeEx(None, 2)
+        log("COM listo")
         self._wp = WNDPROC(self._wndproc)
         clase = "MainbitWV2"
         wc = WNDCLASSW()
@@ -209,12 +218,14 @@ class Ventana:
         wc.lpszClassName = clase
         if not u32.RegisterClassW(ctypes.byref(wc)) and ctypes.GetLastError() != 1410:
             raise OSError("RegisterClass falló")
+        log("clase registrada")
         try:
             esc = ctypes.windll.shcore.GetScaleFactorForDevice(0) / 100.0
         except Exception:
             esc = 1.0
         self.hwnd = u32.CreateWindowExW(0, clase, self.titulo, 0x00CF0000 | 0x10000000, -2147483648, -2147483648,
                                         int(self.ancho * esc), int(self.alto * esc), None, None, wc.hInstance, None)
+        log("ventana creada hwnd=%s" % self.hwnd)
         if not self.hwnd:
             raise OSError("CreateWindow falló")
         self._al_iniciar = al_iniciar
