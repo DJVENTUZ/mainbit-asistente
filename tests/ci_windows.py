@@ -340,5 +340,29 @@ def _():
     import mb_arranque as ARR
     assert "Descargar e iniciar" in ARR.PAGINA and "{CMD}" in ARR.PAGINA
 
+@prueba("copia local exacta: sin restos de versiones viejas y sin tocar datos")
+def _():
+    import mb_local as L, mb_util as U, time as _t
+    base = tempfile.mkdtemp(); src, dst = os.path.join(base, "usb", "MainbitAsistente"), os.path.join(base, "pc", "App")
+    for d in (os.path.join(src, "_internal"), os.path.join(dst, "_internal"), os.path.join(dst, "Reportes")):
+        os.makedirs(d)
+    exe = os.path.basename(sys.executable)
+    open(os.path.join(src, exe), "w").write("nuevo"); open(os.path.join(src, "_internal", "Python.Runtime.dll"), "w").write("3.0.5")
+    open(os.path.join(dst, "_internal", "Python.Runtime.dll"), "w").write("3.2.1-viejo-pero-mas-reciente")   # fecha posterior a la de la USB
+    os.utime(os.path.join(dst, "_internal", "Python.Runtime.dll"), (_t.time() + 5000, _t.time() + 5000))
+    open(os.path.join(dst, "_internal", "resto_viejo.dll"), "w").write("x")
+    open(os.path.join(dst, "Reportes", "r.txt"), "w").write("dato"); open(os.path.join(dst, "RELACION_EQUIPOS.csv"), "w").write("a,b\n")
+    open(os.path.join(dst, "usb_origen.json"), "w").write("{}")
+    ant_app, ant_loc = U.dir_app, L.dir_local
+    U.dir_app, L.dir_local = (lambda: src), (lambda: dst)
+    try:
+        r = L.instalar_local({"usb_etiqueta": "USB Blue"})
+    finally:
+        U.dir_app, L.dir_local = ant_app, ant_loc
+    assert r and os.path.isfile(r), r
+    assert open(os.path.join(dst, "_internal", "Python.Runtime.dll")).read() == "3.0.5"      # idéntica a la de la USB
+    assert not os.path.exists(os.path.join(dst, "_internal", "resto_viejo.dll"))              # sin restos
+    assert open(os.path.join(dst, "Reportes", "r.txt")).read() == "dato" and os.path.exists(os.path.join(dst, "RELACION_EQUIPOS.csv"))   # datos intactos
+
 print("\nRESUMEN:", "TODO OK" if not fallos else "FALLAN -> " + ", ".join(fallos))
 sys.exit(1 if fallos else 0)

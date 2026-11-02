@@ -2449,7 +2449,6 @@ def _copiar_a_local(L):
 
 
 def main():
-    os.environ["PYTHONNET_RUNTIME"] = "netfx"      # el .NET Framework que ya trae Windows (no exige instalar .NET Core)
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except Exception:

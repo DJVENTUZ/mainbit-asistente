@@ -16,7 +16,7 @@ jobs:
       - name: Compilar
         shell: pwsh
         run: |
-          python -m pip install --upgrade pyinstaller cryptography pywebview "pythonnet==3.0.5"
+          python -m pip install --upgrade pyinstaller cryptography pywebview
           Set-Content -Encoding utf8 mb_build.py ('BUILD = "' + '${{ github.sha }}'.Substring(0,7) + ' ' + (Get-Date -Format 'dd-MMM HH:mm') + '"')
           python -m PyInstaller --noconfirm --clean --onedir --windowed --uac-admin --collect-all webview --collect-all pythonnet --collect-all clr_loader --hidden-import clr --add-data "web;web" --name MainbitAsistente mainbit_asistente.py
           $p = Start-Process -FilePath dist\MainbitAsistente\MainbitAsistente.exe -ArgumentList "--prueba-ui" -PassThru

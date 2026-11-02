@@ -121,30 +121,34 @@ def debe_copiarse(cfg):
 
 def _robocopy(origen, destino, extra):
     kw = {"creationflags": 0x08000000} if os.name == "nt" else {}
-    r = subprocess.run(["robocopy", origen, destino, "/E", "/R:1", "/W:1", "/NFL", "/NDL", "/NJH", "/NJS", "/NP"] + extra,
+    r = subprocess.run(["robocopy", origen, destino, "/R:2", "/W:1", "/NFL", "/NDL", "/NJH", "/NJS", "/NP"] + extra,
                        capture_output=True, **kw)
     return r.returncode < 8
 
 
 def instalar_local(cfg):
-    """Copia el programa a la PC y deja anotado de qué USB vino. Devuelve la ruta del .exe local o None."""
+    """Deja en la PC una copia EXACTA del programa (sin mezclar versiones) y anota de qué USB vino.
+    Los datos del servicio no se tocan: viven aparte y la copia solo trae lo que falte. Devuelve el .exe local o None."""
     src, dst = U.dir_app(), dir_local()
     os.makedirs(dst, exist_ok=True)
     primera = not os.path.exists(os.path.join(dst, "usb_origen.json"))
-    xd = [os.path.join(src, d) for d in DATOS_DIRS if not primera] + [os.path.join(src, "BACKUP_MIGRACION")]
-    xf = [] if primera else list(DATOS_ARCHIVOS) + ["RELACION_EQUIPOS.csv", "RELACION_EQUIPOS.xlsx", "estado_mainbit.json"]
-    extra = ["/XO"] + (["/XD"] + xd if xd else []) + (["/XF"] + xf if xf else [])
-    if not _robocopy(src, dst, extra):
+    protegidas = [os.path.join(src, d) for d in DATOS_DIRS] + [os.path.join(src, "BACKUP_MIGRACION")]
+    protegidas_dst = [os.path.join(dst, d) for d in DATOS_DIRS] + [os.path.join(dst, "BACKUP_MIGRACION")]
+    archivos = list(DATOS_ARCHIVOS) + ["RELACION_EQUIPOS.csv", "RELACION_EQUIPOS.xlsx", "estado_mainbit.json"]
+    # /MIR: el programa queda idéntico al de la USB (se eliminan restos de versiones viejas); las carpetas y archivos
+    # de datos quedan excluidos, así que ni se copian ni se borran.
+    if not _robocopy(src, dst, ["/MIR", "/XD"] + protegidas + protegidas_dst + ["/XF"] + archivos):
         return None
+    if primera:                                       # primera vez: trae también lo que ya hubiera en la USB (instaladores, ajustes…)
+        _robocopy(src, dst, ["/E", "/XO", "/XD", os.path.join(src, "BACKUP_MIGRACION")])
     U.escribir_json(os.path.join(dst, "usb_origen.json"),
                     {"origen": src, "etiqueta": etiqueta_volumen(src) or cfg.get("usb_etiqueta", "USB Blue"),
                      "fecha": time.strftime("%Y-%m-%d %H:%M:%S")})
     exe = os.path.join(dst, os.path.basename(sys.executable))
-    if not primera:                                   # trae también lo nuevo de la USB (relación, instaladores…)
-        try:
-            sincronizar(raiz_local(), raiz_datos_usb(src), solo_hacia_local=True, app_local=dst, app_usb=src)
-        except Exception:
-            pass
+    try:                                              # trae lo nuevo de la USB (relación, instaladores…) sin pisar nada
+        sincronizar(raiz_local(), raiz_datos_usb(src), solo_hacia_local=True, app_local=dst, app_usb=src)
+    except Exception:
+        pass
     return exe if os.path.isfile(exe) else None
 
 
