@@ -319,5 +319,23 @@ def _():
     assert ok is False and msg
     assert SYS.instalar_drivers(tempfile.mkdtemp()) == ([], [])
 
+@prueba("la relación sobrevive a actualizar (datos fuera de la carpeta del programa)")
+def _():
+    import mb_local as L, mb_relacion as R
+    base = tempfile.mkdtemp()
+    app_vieja, datos = os.path.join(base, "MainbitAsistente"), os.path.join(base, "MainbitDatos")
+    os.makedirs(app_vieja)
+    r = R.Relacion(app_vieja); r.agregar_pendientes(["Ana Lopez", "Luis Perez"]); r.guardar()   # versión anterior: dentro del programa
+    os.makedirs(os.path.join(app_vieja, "Cierres")); open(os.path.join(app_vieja, "Cierres", "c.txt"), "w").write("x")
+    L.migrar_datos(datos, [app_vieja])
+    assert len(R.Relacion(datos).filas) == 2 and os.path.exists(os.path.join(datos, "Cierres", "c.txt"))
+    import shutil; shutil.rmtree(app_vieja)                                      # "actualizar": se reemplaza la carpeta del programa
+    assert len(R.Relacion(datos).filas) == 2                                    # la relación sigue ahí
+    L.migrar_datos(datos, [app_vieja])                                          # repetir no duplica ni falla
+    assert len(R.Relacion(datos).filas) == 2
+    assert L.raiz_datos_usb(os.path.join("E:\\", "MainbitAsistente")).endswith("MainbitDatos")
+    import mb_arranque as ARR
+    assert "Descargar e iniciar" in ARR.PAGINA and "{CMD}" in ARR.PAGINA
+
 print("\nRESUMEN:", "TODO OK" if not fallos else "FALLAN -> " + ", ".join(fallos))
 sys.exit(1 if fallos else 0)

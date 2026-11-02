@@ -53,6 +53,66 @@ def es_local(ruta=None):
     return ruta.startswith(os.path.abspath(dir_local()).lower())
 
 
+# ---------------------------------------------------------------- datos del servicio (fuera de la carpeta del programa)
+# La relación, los reportes y los cierres viven en una carpeta APARTE del programa. Así actualizar o reemplazar
+# la carpeta MainbitAsistente nunca los toca.
+CARPETAS_SERVICIO = ("Reportes", "Evidencias", "Cierres", "Servicios", "Diagnosticos")
+_RAIZ = {}
+
+
+def raiz_local():
+    return os.path.join(os.path.dirname(dir_local()), "Datos")
+
+
+def raiz_datos_usb(app_usb):
+    """Carpeta de datos que corresponde a la carpeta del programa en la USB (junto a ella, no dentro)."""
+    return os.path.join(os.path.dirname(os.path.abspath(app_usb)), "MainbitDatos")
+
+
+def raiz_datos():
+    """Dónde guarda ESTA copia de la app la relación y los archivos del servicio."""
+    if "r" in _RAIZ:
+        return _RAIZ["r"]
+    app = U.dir_app()
+    if not getattr(sys, "frozen", False):            # desarrollo y pruebas: como siempre, junto al programa
+        _RAIZ["r"] = U.dir_escribible(app)
+        return _RAIZ["r"]
+    if not es_local() and en_usb(app):
+        dest = raiz_datos_usb(app)
+    else:
+        dest = raiz_local()
+    dest = U.dir_escribible(dest)
+    _RAIZ["r"] = dest
+    try:
+        migrar_datos(dest, [app, dir_local()])
+    except Exception:
+        pass
+    return dest
+
+
+def migrar_datos(destino, origenes):
+    """Trae a `destino` lo que versiones anteriores dejaron DENTRO de la carpeta del programa. No borra nada
+    del origen y no pisa nada del destino (se fusiona)."""
+    from mb_relacion import Relacion
+    marca = os.path.join(destino, ".migrado.json")
+    hechos = U.leer_json(marca, []) or []
+    host = os.environ.get("COMPUTERNAME", "PC")
+    nuevos = []
+    for o in origenes:
+        o = os.path.abspath(o)
+        if o.lower() == os.path.abspath(destino).lower() or o.lower() in [h.lower() for h in hechos]:
+            continue
+        if os.path.exists(os.path.join(o, "RELACION_EQUIPOS.csv")):
+            r = Relacion(destino)
+            r.importar(os.path.join(o, "RELACION_EQUIPOS.csv"))
+            r.guardar()
+        for d in CARPETAS_SERVICIO:
+            _copiar_sin_perder(os.path.join(o, d), os.path.join(destino, d), host)
+        nuevos.append(o)
+    if nuevos:
+        U.escribir_json(marca, hechos + nuevos)
+
+
 def debe_copiarse(cfg):
     return bool(getattr(sys, "frozen", False) and cfg.get("modo_local", True) and not es_local()
                 and en_usb(U.dir_app(), cfg.get("usb_etiqueta", "USB Blue"))
@@ -82,7 +142,7 @@ def instalar_local(cfg):
     exe = os.path.join(dst, os.path.basename(sys.executable))
     if not primera:                                   # trae también lo nuevo de la USB (relación, instaladores…)
         try:
-            sincronizar(dst, src, solo_hacia_local=True)
+            sincronizar(raiz_local(), raiz_datos_usb(src), solo_hacia_local=True, app_local=dst, app_usb=src)
         except Exception:
             pass
     return exe if os.path.isfile(exe) else None
@@ -135,8 +195,10 @@ def _copiar_sin_perder(origen_dir, destino_dir, host):
     return n
 
 
-def sincronizar(local, usb, solo_hacia_local=False, host=None, log=None):
-    """Fusiona local ⇄ USB sin pisar nada. Devuelve un resumen."""
+def sincronizar(local, usb, solo_hacia_local=False, host=None, log=None, app_local=None, app_usb=None):
+    """Fusiona local ⇄ USB sin pisar nada. `local`/`usb` son las carpetas de DATOS; `app_*` las del programa
+    (instaladores, tipografías y ajustes). Devuelve un resumen."""
+    app_local, app_usb = app_local or local, app_usb or usb
     from mb_relacion import Relacion
     host = host or os.environ.get("COMPUTERNAME", "PC")
     res = {"relacion_usb": 0, "relacion_local": 0, "archivos": 0, "config": 0}
@@ -149,19 +211,20 @@ def sincronizar(local, usb, solo_hacia_local=False, host=None, log=None):
         rep = r_loc.importar(r_usb.csv)
         res["relacion_local"] = rep["nuevas"] + rep["completadas"]
         r_loc.guardar()
-    for d in ("Reportes", "Evidencias", "Cierres", "Servicios", "Diagnosticos"):
+    for d in CARPETAS_SERVICIO:
         if not solo_hacia_local:
             res["archivos"] += _copiar_sin_perder(os.path.join(local, d), os.path.join(usb, d), host)
-    for d in ("Instaladores", "Tipografias"):
         res["archivos"] += _copiar_sin_perder(os.path.join(usb, d), os.path.join(local, d), host)
+    for d in ("Instaladores", "Tipografias"):
+        res["archivos"] += _copiar_sin_perder(os.path.join(app_usb, d), os.path.join(app_local, d), host)
         if not solo_hacia_local:
-            res["archivos"] += _copiar_sin_perder(os.path.join(local, d), os.path.join(usb, d), host)
+            res["archivos"] += _copiar_sin_perder(os.path.join(app_local, d), os.path.join(app_usb, d), host)
     # configuración: solo se rellena lo que esté vacío o por defecto en el otro lado
-    c_loc = U.leer_json(os.path.join(local, "config_mainbit.json"), {}) or {}
-    c_usb = U.leer_json(os.path.join(usb, "config_mainbit.json"), {}) or {}
-    for origen_c, destino_c, ruta in ((c_loc, c_usb, os.path.join(usb, "config_mainbit.json")),
-                                      (c_usb, c_loc, os.path.join(local, "config_mainbit.json"))):
-        if solo_hacia_local and ruta.startswith(usb):
+    c_loc = U.leer_json(os.path.join(app_local, "config_mainbit.json"), {}) or {}
+    c_usb = U.leer_json(os.path.join(app_usb, "config_mainbit.json"), {}) or {}
+    for origen_c, destino_c, ruta in ((c_loc, c_usb, os.path.join(app_usb, "config_mainbit.json")),
+                                      (c_usb, c_loc, os.path.join(app_local, "config_mainbit.json"))):
+        if solo_hacia_local and ruta.startswith(app_usb):
             continue
         cambio = False
         for k in U.CLAVES_COMPARTIDAS:

@@ -16,6 +16,7 @@ from datetime import datetime
 import mb_motor as M
 import mb_sistema as SYS
 import mb_util as U
+import mb_local as L0
 import mb_servicio as SV
 import mb_secretos as SEC
 import mainbit_asistente as A
@@ -171,7 +172,7 @@ class Core(A.App):
         self.cfg = U.cargar_config()
         self.est_path = os.path.join(U.dir_datos(), "estado.json")
         self.estado = U.leer_json(self.est_path, {}) or {}
-        self.relacion = Relacion(U.dir_escribible(U.dir_app()))
+        self.relacion = Relacion(L0.raiz_datos())
         self.q = queue.Queue()
         self.job = None
         self.ocupado = False
@@ -647,7 +648,7 @@ class Core(A.App):
                 "faltan": [x["nombre"] if isinstance(x, dict) else str(x) for x in faltan][:300]}
 
     def datos_reportes(self):
-        base = U.dir_escribible(U.dir_app())
+        base = L0.raiz_datos()
         out = []
         for carpeta in ("Cierres", "Evidencias", "Reportes", "Diagnosticos"):
             d = os.path.join(base, carpeta)
@@ -663,7 +664,7 @@ class Core(A.App):
                 "pendientes": pn, "ruta": base}
 
     def datos_liberar(self):
-        carpeta = os.path.join(U.dir_escribible(U.dir_app()), "Cierres")
+        carpeta = os.path.join(L0.raiz_datos(), "Cierres")
         try:
             ficha = SV.ultima_ficha(carpeta, SYS.nombre_host())
         except Exception:

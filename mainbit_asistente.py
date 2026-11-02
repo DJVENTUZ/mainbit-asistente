@@ -21,6 +21,7 @@ from tkinter import filedialog, messagebox, ttk, font as tkfont
 import mb_motor as M
 import mb_sistema as SYS
 import mb_util as U
+import mb_local as L0
 import mb_servicio as SV
 import mb_manual as MAN
 import mb_arranque as ARR
@@ -91,7 +92,7 @@ class App:
         self.cfg = U.cargar_config()
         self.est_path = os.path.join(U.dir_datos(), "estado.json")
         self.estado = U.leer_json(self.est_path, {}) or {}
-        self.relacion = Relacion(U.dir_escribible(U.dir_app()))
+        self.relacion = Relacion(L0.raiz_datos())
         self.q = queue.Queue()
         self.job = None
         self.ocupado = False
@@ -1049,7 +1050,9 @@ class App:
             try:
                 self.srv_arranque, pto = ARR.iniciar_auto(U.dir_app())
                 ip1 = (SYS.describir_ips() or [("", "")])[0][1]
-                self.arranque_info = {"url": ARR.url_base(ip1, pto), "cmd": ARR.comando_vieja(ip1, pto)}
+                nom = SYS.nombre_host()
+                self.arranque_info = {"url": ARR.url_base(ip1, pto), "cmd": ARR.comando_vieja(ip1, pto),
+                                      "corto": ARR.url_base(nom, pto).replace("http://", ""), "ip": ip1}
                 if hasattr(self, "rev"):
                     self.rev += 1
                 job.log(f"PC vieja sin la app: abre el navegador y escribe {ARR.url_base(ip1, pto)}", "info")
@@ -1436,14 +1439,36 @@ class App:
             return None
         with self.usb_lock:
             self.estado_txt("Guardando en la USB…", "warn")
-            res = L.sincronizar(U.dir_app(), ruta, host=SYS.nombre_host())
+            res = L.sincronizar(L.raiz_datos(), L.raiz_datos_usb(ruta), host=SYS.nombre_host(), app_local=U.dir_app(), app_usb=ruta)
+            self._vaciar_usb(ruta)
             self.relacion.cargar()
             self.usb.update(huella=self._huella(), pendiente=False, ultima=datetime.now().strftime("%H:%M:%S"),
                             msg=f"Guardado: {res['relacion_usb']} equipos, {res['archivos']} archivos")
             self.log("USB sincronizada · " + self.usb["msg"] + ". Ya puedes sacarla.", "ok")
+            self.usb["aviso"] = {"n": (self.usb.get("aviso") or {}).get("n", 0) + 1,
+                                 "texto": "Listo: ya puedes sacar la USB y llevarla a la siguiente PC"}
+            try:
+                import winsound
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            except Exception:
+                pass
             self.estado_txt("USB al día: ya puedes sacarla", "ok")
             self.ui(self.actualizar_banner)
             return res
+
+    @staticmethod
+    def _vaciar_usb(ruta):
+        """Pide a Windows que escriba todo en la USB antes de avisar que se puede sacar."""
+        if os.name != "nt":
+            return
+        try:
+            k = ctypes.windll.kernel32
+            h = k.CreateFileW("\\\\.\\" + os.path.splitdrive(os.path.abspath(ruta))[0], 0xC0000000, 3, None, 3, 0, None)
+            if h not in (-1, 0xFFFFFFFF, None):
+                k.FlushFileBuffers(h)
+                k.CloseHandle(h)
+        except Exception:
+            pass
 
     def sincronizar_usb(self):
         if not getattr(self, "usb", {}).get("local"):
@@ -1458,7 +1483,7 @@ class App:
         try:
             h.append(os.path.getmtime(self.relacion.csv) if os.path.exists(self.relacion.csv) else 0)
             for d in ("Reportes", "Evidencias", "Cierres", "Servicios", "Diagnosticos"):
-                p = os.path.join(U.dir_app(), d)
+                p = os.path.join(L0.raiz_datos(), d)
                 h.append(sum(len(f) for _, _, f in os.walk(p)) if os.path.isdir(p) else 0)
         except OSError:
             pass
@@ -1731,7 +1756,7 @@ class App:
     # ==================================================================
     def diagnostico_monitores(self):
         texto = SYS.monitores_diagnostico()
-        carpeta = os.path.join(U.dir_escribible(U.dir_app()), "Diagnosticos")
+        carpeta = os.path.join(L0.raiz_datos(), "Diagnosticos")
         os.makedirs(carpeta, exist_ok=True)
         ruta = os.path.join(carpeta, f"monitores_{SYS.nombre_host()}_{datetime.now():%Y%m%d_%H%M}.txt")
         with open(ruta, "w", encoding="utf-8") as f:
@@ -1745,7 +1770,7 @@ class App:
                 "monitor. Si no coinciden, mándame el archivo junto con las series de las etiquetas.")
 
     def verificar_liberar(self):
-        carpeta = os.path.join(U.dir_escribible(U.dir_app()), "Cierres")
+        carpeta = os.path.join(L0.raiz_datos(), "Cierres")
         ok, msg = SV.verificar_liberar(carpeta, SYS.nombre_host())
         self.log(msg, "ok" if ok else "warn")
         self.ui(self.lbl_cierre.config, {"text": msg, "fg": C["green"] if ok else C["yellow"]})
@@ -1758,7 +1783,7 @@ class App:
         nuevos = SV.programas_instalados()
         viejos = iv.get("programas") or []
         faltan = [p["nombre"] for p in (SV.comparar(viejos, nuevos)[0] if viejos else [])]
-        ficha = SV.ultima_ficha(os.path.join(U.dir_escribible(U.dir_app()), "Cierres"), iv.get("host", ""))
+        ficha = SV.ultima_ficha(os.path.join(L0.raiz_datos(), "Cierres"), iv.get("host", ""))
         borrado = SV.fecha_min_borrado().strftime("%d/%m/%Y")
         return MAN.datos_servicio(
             SYS.nombre_host(), self.destino, carpetas_perfil=SYS.CARPETAS_PERFIL,
@@ -1887,7 +1912,8 @@ class App:
                 ruta_usb = L.buscar_usb()
                 if ruta_usb:
                     from mb_relacion import Relacion as _R
-                    _R(ruta_usb).archivar_y_vaciar(os.path.join(ruta_usb, "Servicios", os.path.basename(dest)))
+                    _ru = L.raiz_datos_usb(ruta_usb)
+                    _R(_ru).archivar_y_vaciar(os.path.join(_ru, "Servicios", os.path.basename(dest)))
             for f in os.listdir(carpeta):                       # copia de los reportes de este servicio (los originales se quedan)
                 p = os.path.join(carpeta, f)
                 if os.path.isfile(p):
@@ -2119,7 +2145,7 @@ class App:
             self.estado["enviado"] = True
             self.guardar_estado()
             try:
-                ficha, _ = SV.escribir_cierre(os.path.join(U.dir_escribible(U.dir_app()), "Cierres"), info, res)
+                ficha, _ = SV.escribir_cierre(os.path.join(L0.raiz_datos(), "Cierres"), info, res)
                 marcador = SV.escribir_marcador(ficha)
                 job.log(f"Ficha de cierre guardada. NO borrar esta PC antes de {ficha['no_borrar_antes_de'][:10]}.", "info")
                 if marcador:
