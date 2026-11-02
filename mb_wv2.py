@@ -42,6 +42,18 @@ class COLOR(ctypes.Structure):
     _fields_ = [("A", ctypes.c_ubyte), ("R", ctypes.c_ubyte), ("G", ctypes.c_ubyte), ("B", ctypes.c_ubyte)]
 
 
+def log(txt):
+    """Registro de arranque (solo para diagnóstico): ProgramData\\MainbitAsistente\\wv2_log.txt"""
+    try:
+        import time
+        d = os.path.join(os.environ.get("ProgramData", r"C:\\ProgramData"), "MainbitAsistente")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "wv2_log.txt"), "a", encoding="utf-8") as f:
+            f.write(time.strftime("%H:%M:%S ") + str(txt) + "\n")
+    except Exception:
+        pass
+
+
 def _ptr_at(direccion):
     return ctypes.c_void_p.from_address(direccion).value
 
@@ -69,7 +81,8 @@ class _Handler:
             try:
                 fn(a, b)
             except Exception:
-                pass
+                import traceback
+                log("ERROR en manejador: " + traceback.format_exc()[-600:])
             return 0
         self._f = (QI(qi), REF(lambda t: 1), REF(lambda t: 1), INV(inv))
         self._vt = (ctypes.c_void_p * 4)(*[ctypes.cast(f, ctypes.c_void_p) for f in self._f])
@@ -184,6 +197,7 @@ class Ventana:
     # ------------------------------------------------------------ arranque
     def iniciar(self, al_iniciar=None):
         """Crea la ventana y corre el bucle de mensajes. Devuelve True si se abrió la página, False si no se pudo."""
+        log("iniciar: loader=%s url=%s" % (self.loader, self.url))
         o32.CoInitializeEx(None, 2)
         self._wp = WNDPROC(self._wndproc)
         clase = "MainbitWV2"
@@ -211,6 +225,7 @@ class Ventana:
         if r != 0:
             u32.DestroyWindow(self.hwnd)
             raise OSError("WebView2 Runtime no disponible (0x%08X)" % (r & 0xFFFFFFFF))
+        log("entorno solicitado (r=%s) hwnd=%s" % (r, self.hwnd))
         u32.ShowWindow(self.hwnd, 5)
         msg = wt.MSG()
         while u32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
@@ -219,6 +234,7 @@ class Ventana:
         return self.error is None
 
     def _env_listo(self, hr, env):
+        log("entorno listo hr=0x%08X env=%s" % ((hr or 0) & 0xFFFFFFFF, env))
         if (hr & 0xFFFFFFFF) != 0 or not env:
             self.error = "entorno WebView2: 0x%08X" % (hr & 0xFFFFFFFF)
             u32.PostQuitMessage(0)
@@ -228,6 +244,7 @@ class Ventana:
         _met(env, 3, HRESULT, wt.HWND, ctypes.c_void_p)(env, self.hwnd, h.ptr)
 
     def _ctrl_listo(self, hr, ctrl):
+        log("controlador listo hr=0x%08X ctrl=%s" % ((hr or 0) & 0xFFFFFFFF, ctrl))
         if (hr & 0xFFFFFFFF) != 0 or not ctrl:
             self.error = "controlador WebView2: 0x%08X" % (hr & 0xFFFFFFFF)
             u32.PostQuitMessage(0)
@@ -257,6 +274,7 @@ class Ventana:
         tok = ctypes.c_longlong()
         _met(self.core, 34, HRESULT, ctypes.c_void_p, ctypes.POINTER(ctypes.c_longlong))(self.core, h_msg.ptr, ctypes.byref(tok))
         _met(self.core, 5, HRESULT, wt.LPCWSTR)(self.core, self.url)
+        log("navegando a la página; transparente=%s" % (self.controller2 is not None))
         self.listo.set()
         if self._al_iniciar:
             threading.Thread(target=self._al_iniciar, daemon=True).start()
@@ -269,6 +287,7 @@ class Ventana:
             return
         texto = ctypes.wstring_at(s.value)
         o32.CoTaskMemFree(ctypes.c_void_p(s.value))
+        log("mensaje de la página: " + texto[:80])
         d = json.loads(texto)
         threading.Thread(target=self._llamar, args=(d.get("id"), d.get("m"), d.get("a") or []), daemon=True).start()
 

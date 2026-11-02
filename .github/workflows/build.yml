@@ -30,7 +30,10 @@ jobs:
           if (-not $p.WaitForExit(120000)) { $p.Kill() }
           $r = Get-Content dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
           Write-Host "::notice title=PRUEBA UI::$r"
-          if (-not $r -or $r -notmatch '"ok": true') { Write-Host "::error::La interfaz nueva no abrió bien: $r"; exit 1 }
+          if (-not $r -or $r -notmatch '"ok": true') {
+            $lg = Get-Content "$env:ProgramData\MainbitAsistente\wv2_log.txt" -Raw -ErrorAction SilentlyContinue
+            $er = Get-Content "$env:ProgramData\MainbitAsistente\arranque_error.txt" -Raw -ErrorAction SilentlyContinue
+            Write-Host "::error::La interfaz nueva no abrió bien: $r || LOG: $lg || ERR: $er"; exit 1 }
           if ($r -notmatch '"motor": "wv2"') { Write-Host "::error::No usó el motor WebView2 directo: $r"; exit 1 }
           Remove-Item dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
           foreach ($m in @("--prueba-hijo-sucio", "--prueba-hijo")) {
