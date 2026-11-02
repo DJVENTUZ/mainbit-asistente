@@ -238,3 +238,22 @@ def sincronizar(local, usb, solo_hacia_local=False, host=None, log=None, app_loc
     if log:
         log(f"Sincronizado con la USB: {res}")
     return res
+
+
+def crear_acceso(exe, carpeta=None, nombre="Mainbit Toolkit"):
+    """Acceso en el menú Inicio (para todos los usuarios) que apunta a la copia local. Devuelve la ruta o None."""
+    if os.name != "nt" or not os.path.isfile(exe):
+        return None
+    carpeta = carpeta or os.path.join(os.environ.get("ProgramData", r"C:\ProgramData"),
+                                      "Microsoft", "Windows", "Start Menu", "Programs")
+    try:
+        os.makedirs(carpeta, exist_ok=True)
+        lnk = os.path.join(carpeta, nombre + ".lnk")
+        ps = ("$s=(New-Object -ComObject WScript.Shell).CreateShortcut($env:MB_LNK);"
+              "$s.TargetPath=$env:MB_EXE;$s.WorkingDirectory=Split-Path $env:MB_EXE;"
+              "$s.IconLocation=$env:MB_EXE+',0';$s.Description='Mainbit Toolkit';$s.Save()")
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True, timeout=30,
+                           env=dict(os.environ, MB_LNK=lnk, MB_EXE=exe), creationflags=0x08000000)
+        return lnk if r.returncode == 0 and os.path.exists(lnk) else None
+    except Exception:
+        return None

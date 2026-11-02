@@ -2459,6 +2459,8 @@ def main():
         if "--sin-copia" not in sys.argv and L.debe_copiarse(U.cargar_config()):
             if _copiar_a_local(L):
                 return
+        if getattr(sys, "frozen", False) and L.es_local():
+            threading.Thread(target=L.crear_acceso, args=(sys.executable,), daemon=True).start()
     except Exception:
         pass
     motivo = ""

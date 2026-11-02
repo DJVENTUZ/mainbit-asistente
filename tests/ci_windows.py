@@ -334,6 +334,9 @@ def _():
     L.migrar_datos(datos, [app_vieja])                                          # repetir no duplica ni falla
     assert len(R.Relacion(datos).filas) == 2
     assert L.raiz_datos_usb(os.path.join("E:\\", "MainbitAsistente")).endswith("MainbitDatos")
+    exe = os.path.join(tempfile.mkdtemp(), "MainbitAsistente.exe"); open(exe, "wb").write(b"x")
+    lnk = L.crear_acceso(exe, tempfile.mkdtemp())
+    assert lnk and os.path.exists(lnk) and lnk.endswith("Mainbit Toolkit.lnk"), lnk   # aparece en Inicio
     import mb_arranque as ARR
     assert "Descargar e iniciar" in ARR.PAGINA and "{CMD}" in ARR.PAGINA
 
