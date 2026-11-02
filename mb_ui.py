@@ -204,6 +204,36 @@ def aplicar_vidrio(hwnd, alpha, blur=0.0, solido=False):
     return ok
 
 
+_WV = [None]
+ZOOM = {"z": 1.0}
+
+
+def _ajustar_zoom(ventana, hwnd):
+    """Si la ventana es más chica que el diseño (1240×760 px lógicos), se reduce el zoom de la página para que TODO quepa."""
+    try:
+        wv = _WV[0]
+        if wv is None:
+            return
+        u32 = ctypes.windll.user32
+        rc = wt.RECT()
+        u32.GetClientRect(wt.HWND(hwnd), ctypes.byref(rc))
+        try:
+            esc = u32.GetDpiForWindow(wt.HWND(hwnd)) / 96.0
+        except Exception:
+            esc = 1.0
+        w, h = rc.right / esc, rc.bottom / esc
+        if w < 50 or h < 50:
+            return
+        z = max(0.5, min(1.0, w / 1240.0, h / 760.0))
+        if abs(z - ZOOM["z"]) < 0.02:
+            return
+        from System import Action
+        ZOOM["z"] = z
+        ventana.native.Invoke(Action(lambda: setattr(wv, "ZoomFactor", float(z))))
+    except Exception:
+        pass
+
+
 def _webview_transparente(ventana):
     """pywebview pinta el WebView2 con color sólido; aquí se cambia a transparente para ver el vidrio de Windows."""
     try:
@@ -237,6 +267,7 @@ def _webview_transparente(ventana):
             if wv is None:
                 ESTADO_VIDRIO["fondo"] = "sin control"
                 return
+            _WV[0] = wv
             wv.DefaultBackgroundColor = D.Color.Transparent
             try:
                 form.BackColor = D.Color.Black
@@ -350,6 +381,7 @@ def _hilo_cristal(ventana, titulo):
             if cfg != aplicado:
                 aplicado = cfg
                 aplicar_vidrio(hwnd, ESTADO_VIDRIO["alpha"], ESTADO_VIDRIO["blur"], ESTADO_VIDRIO["solido"])
+            _ajustar_zoom(ventana, hwnd)
             g = capturar_detras(hwnd)
             if g and (ultimo is None or sum(abs(a - b) for a, b in zip(g, ultimo)) / len(g) > 0.004):
                 ultimo = g
@@ -378,6 +410,7 @@ def _prueba(w, core):
         res["titulo"] = w.evaluate_js("document.querySelector('#ttl h1').textContent")
         w.evaluate_js("window.__f=0;(function t(){__f++;requestAnimationFrame(t)})();0")
         time.sleep(3)
+        res["zoom"] = ZOOM["z"]
         res["fps"] = round((w.evaluate_js("window.__f") or 0) / 3, 1)
         res["vidrio"] = ESTADO_VIDRIO["ok"]
         res["vidrio_detalle"] = dict(ESTADO_VIDRIO)

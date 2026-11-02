@@ -10,6 +10,8 @@ import os
 import queue
 import socket
 import sys
+import shutil
+import tempfile
 import threading
 import time
 import tkinter as tk
@@ -141,9 +143,17 @@ class App:
         root.protocol("WM_DELETE_WINDOW", self.cerrar)
         root.after(120, self.tick)
         self.en_hilo("info", self._cargar_info)
+        self._arranque_automatico()
+
+    def _arranque_automatico(self):
+        """Lo que la app hace sola al abrir (lo usan la interfaz clásica y la nueva)."""
         self.dir_instaladores()
+        self._iniciar_vigilancia_usb()
         if os.path.isfile(os.path.join(U.dir_app(), "modo_vieja.flag")):
-            self.seg.seleccionar(1)
+            try:
+                self.seg.seleccionar(1)
+            except Exception:
+                pass
             self.cambiar_modo(1)
             threading.Thread(target=self._auto_buscar_receptor, daemon=True).start()
         elif self.estado.get("unido") and not self.estado.get("final_auto"):
@@ -444,7 +454,9 @@ class App:
                  ("fuentes", "Tipografías (72 Noto Sans + 3 Patria)", "Instalar", self.accion_fuentes),
                  ("impresora", "Impresora de red", "Conectar", lambda: self.en_hilo("impresora", self.chk_impresora)),
                  ("impvieja", "Impresoras de la PC vieja (clonar)", "Clonar", lambda: self.en_hilo("clonar", self.chk_clonar_impresoras)),
+                 ("perfil", "Perfil del usuario de la PC vieja", "Crear", lambda: self.en_hilo("perfil", self.chk_perfil_dominio)),
                  ("programas", "Programas de la carpeta «Instaladores»", "Instalar", lambda: self.en_hilo("instalar", self.instalar_programas)),
+                 ("apps", "Apps de la PC vieja que faltan (winget)", "Instalar", lambda: self.en_hilo("apps", self.instalar_faltantes)),
                  ("datos", "Datos restaurados al perfil (opcional)", "Restaurar", self.abrir_restaurar)]
         for clave, texto, boton, cmd in filas:
             fr = FilaEstado(a, texto, C["card"], self.f(9), boton, cmd, wrap=250)
@@ -1030,17 +1042,17 @@ class App:
         threading.Thread(target=M.servidor_discovery, args=(stop,), daemon=True).start()
         p = job.prog
         try:
-            if SYS.abrir_firewall(M.PORT_TRANSFER, M.PORT_DISCOVER, ARR.PORT_ARRANQUE):
+            if SYS.abrir_firewall(M.PORT_TRANSFER, M.PORT_DISCOVER, "80,%d" % ARR.PORT_ARRANQUE):
                 self.fw_abierto = True
                 job.log("Firewall: puertos abiertos automáticamente.", "ok")
             ips = ", ".join(ip for _, ip in SYS.describir_ips()) or "sin IP"
             try:
-                self.srv_arranque = ARR.iniciar(U.dir_app())
+                self.srv_arranque, pto = ARR.iniciar_auto(U.dir_app())
                 ip1 = (SYS.describir_ips() or [("", "")])[0][1]
-                self.arranque_info = {"url": f"http://{ip1}:{ARR.PORT_ARRANQUE}", "cmd": ARR.comando_vieja(ip1)}
+                self.arranque_info = {"url": ARR.url_base(ip1, pto), "cmd": ARR.comando_vieja(ip1, pto)}
                 if hasattr(self, "rev"):
                     self.rev += 1
-                job.log(f"PC vieja sin la app: abre el navegador y escribe http://{ip1}:{ARR.PORT_ARRANQUE}", "info")
+                job.log(f"PC vieja sin la app: abre el navegador y escribe {ARR.url_base(ip1, pto)}", "info")
             except OSError:
                 pass
             job.log(f"Receptor activo · IP {ips} · puerto {M.PORT_TRANSFER}", "info")
@@ -1247,15 +1259,24 @@ class App:
         threading.Thread(target=run, daemon=True).start()
 
     def chk_politicas(self):
-        self.ui(self.f_fin["politicas"].set, "run", "Ejecutando gpupdate /force… (puede tardar 1 min)")
-        ok, nombres = SYS.actualizar_politicas()
+        fr = self.f_fin["politicas"]
+        dominio = self.estado.get("unido") or (self.info or {}).get("unido")
+        ok, nombres = False, []
+        for intento in range(1, 4):
+            self.ui(fr.set, "run", f"Aplicando políticas (gpupdate)… intento {intento}/3, puede tardar 1-2 min")
+            ok, nombres = SYS.actualizar_politicas()
+            if ok and (nombres or not dominio):
+                break
+            time.sleep(15)
         self.res["gpo"] = nombres
         if nombres:
-            self.ui(self.f_fin["politicas"].set, "ok", f"{len(nombres)} políticas: " + ", ".join(nombres[:4]) +
-                    ("…" if len(nombres) > 4 else ""))
+            self.ui(fr.set, "ok", f"{len(nombres)} políticas: " + ", ".join(nombres[:4]) + ("…" if len(nombres) > 4 else ""))
+        elif ok and dominio:
+            self.ui(fr.set, "ok", "Políticas actualizadas (gpupdate terminó sin errores)")
+        elif ok:
+            self.ui(fr.set, "warn", "gpupdate terminó, pero el equipo aún no está en el dominio")
         else:
-            self.ui(self.f_fin["politicas"].set, "warn", "No se detectaron políticas de dominio. ¿Ya iniciaste "
-                                                          "sesión con el usuario del dominio y estás en la red?")
+            self.ui(fr.set, "warn", "No se pudo actualizar: revisa que haya red hacia el controlador de dominio")
 
     def _resolver_dir_fuentes(self):
         d = self.cfg["fuentes_dir"]
@@ -1311,23 +1332,137 @@ class App:
         self.ui(self.f_fin["impresora"].set, "ok" if ok else "warn", msg)
 
     def ejecutar_todo(self):
-        carpeta = None
-        if "fuentes" not in self.tareas:
-            carpeta = self._resolver_dir_fuentes()
-
+        """Lista final automática: lo que falte se hace solo (perfil, políticas, tipografías, impresoras, apps)."""
         def run():
             self.chk_dominio()
-            self.chk_ivanti()
+            self.chk_perfil_dominio()
             self.chk_politicas()
+            self.chk_ivanti()
+            carpeta = self._dir_fuentes_silencioso()
             if carpeta:
                 self.chk_fuentes(carpeta)
+            elif self.cfg.get("fuentes_url") and hasattr(self, "fuentes_desde_internet"):
+                self.fuentes_desde_internet()
+            else:
+                self.ui(self.f_fin["fuentes"].set, "warn", "Pon la dirección de descarga en Ajustes o una carpeta «Tipografias» junto al programa")
             self.chk_impresora()
+            if (self.estado.get("info_vieja") or {}).get("impresoras"):
+                self.chk_clonar_impresoras()
             if SYS.listar_instaladores(self.dir_instaladores()):
                 self.instalar_programas()
+            if self.cfg.get("auto_winget", True) and (self.estado.get("info_vieja") or {}).get("programas"):
+                self.instalar_faltantes()
             self.log("Lista final revisada.", "ok")
             self.estado_txt("Lista final revisada", "ok")
             self.ui(self.actualizar_faltantes)
         self.en_hilo("todo", run)
+
+    def _dir_fuentes_silencioso(self):
+        d = self.cfg.get("fuentes_dir")
+        if d and os.path.isdir(d):
+            return d
+        d = SYS.buscar_dir_fuentes([U.dir_app()])
+        if d:
+            self.cfg["fuentes_dir"] = d
+            U.guardar_config(self.cfg)
+        return d
+
+    def chk_perfil_dominio(self):
+        fr = self.f_fin["perfil"]
+        usuario = (self.estado.get("info_vieja") or {}).get("usuario") or ""
+        if not usuario:
+            self.ui(fr.set, None, "Aún no se recibió el usuario de la PC vieja")
+            return
+        if not (self.estado.get("unido") or (self.info or {}).get("unido")):
+            self.ui(fr.set, "warn", "Primero une el equipo al dominio")
+            return
+        self.ui(fr.set, "run", f"Creando el perfil de {usuario}…")
+        ok, msg = SYS.crear_perfil_dominio(usuario, self.cfg.get("dominio", ""))
+        self.log(f"Perfil de {usuario}: {msg}", "ok" if ok else "warn")
+        self.ui(fr.set, "ok" if ok else "warn", msg)
+
+    def instalar_faltantes(self):
+        """Instala con winget las apps de la PC vieja que no están en esta (necesita internet y winget)."""
+        fr = self.f_fin["apps"]
+        viejos = (self.estado.get("info_vieja") or {}).get("programas") or []
+        faltan = [p["nombre"] for p in SV.comparar(viejos, SV.programas_instalados())[0]]
+        if not viejos:
+            self.ui(fr.set, None, "Aún no se recibió la lista de la PC vieja")
+            return
+        if not faltan:
+            self.ui(fr.set, "ok", "No falta ninguna app")
+            return
+        if not SYS.winget_disponible():
+            self.ui(fr.set, "warn", f"Faltan {len(faltan)} apps; winget no está disponible: ponlas en la carpeta Instaladores")
+            return
+        hechas, sin = [], []
+        for i, nom in enumerate(faltan, 1):
+            self.ui(fr.set, "run", f"Instalando {i}/{len(faltan)}: {nom}…")
+            ok, det = SYS.winget_instalar(nom)
+            self.log(f"{nom}: {'instalada' if ok else det}", "ok" if ok else "warn")
+            (hechas if ok else sin).append(nom)
+        self.res["apps_winget"] = {"ok": hechas, "sin": sin}
+        det = f"{len(hechas)} instaladas" + (f" · {len(sin)} a mano (no están en winget): " + ", ".join(sin[:5]) + ("…" if len(sin) > 5 else "") if sin else "")
+        self.ui(fr.set, "ok" if not sin else "warn", det)
+
+    # ---------------------------------------------------------------- USB: sincronizar al volver a insertarla
+    def _iniciar_vigilancia_usb(self):
+        import mb_local as L
+        self.usb = {"local": bool(L.origen()) and L.es_local(), "presente": False, "pendiente": True, "ultima": "", "msg": ""}
+        if not self.usb["local"]:
+            return
+        self.usb_lock = threading.Lock()
+
+        def vigilar():
+            while getattr(self, "vivo", True):
+                try:
+                    ruta = L.buscar_usb()
+                    self.usb["presente"] = bool(ruta)
+                    if self._huella() != self.usb.get("huella"):
+                        self.usb["pendiente"] = True
+                    if ruta and self.usb["pendiente"] and not self.ocupado:
+                        self._sincronizar_usb(ruta)
+                except Exception as e:
+                    self.usb["msg"] = f"Error al sincronizar: {e}"
+                if hasattr(self, "rev"):
+                    self.rev += 1
+                time.sleep(3)
+        threading.Thread(target=vigilar, daemon=True).start()
+
+    def _sincronizar_usb(self, ruta=None):
+        import mb_local as L
+        ruta = ruta or L.buscar_usb()
+        if not ruta:
+            return None
+        with self.usb_lock:
+            self.estado_txt("Guardando en la USB…", "warn")
+            res = L.sincronizar(U.dir_app(), ruta, host=SYS.nombre_host())
+            self.relacion.cargar()
+            self.usb.update(huella=self._huella(), pendiente=False, ultima=datetime.now().strftime("%H:%M:%S"),
+                            msg=f"Guardado: {res['relacion_usb']} equipos, {res['archivos']} archivos")
+            self.log("USB sincronizada · " + self.usb["msg"] + ". Ya puedes sacarla.", "ok")
+            self.estado_txt("USB al día: ya puedes sacarla", "ok")
+            self.ui(self.actualizar_banner)
+            return res
+
+    def sincronizar_usb(self):
+        if not getattr(self, "usb", {}).get("local"):
+            self.log("Esta copia no viene de una USB: no hay nada que sincronizar.", "info")
+            return
+        if not self._sincronizar_usb():
+            self.ui(messagebox.showinfo, "Sincronizar", "Inserta la USB «%s» y se guardará sola." % self.cfg.get("usb_etiqueta", "USB Blue"))
+
+    def _huella(self):
+        """Cambia cuando hay algo nuevo que guardar en la USB (relación o archivos generados)."""
+        h = []
+        try:
+            h.append(os.path.getmtime(self.relacion.csv) if os.path.exists(self.relacion.csv) else 0)
+            for d in ("Reportes", "Evidencias", "Cierres", "Servicios", "Diagnosticos"):
+                p = os.path.join(U.dir_app(), d)
+                h.append(sum(len(f) for _, _, f in os.walk(p)) if os.path.isdir(p) else 0)
+        except OSError:
+            pass
+        return tuple(h)
 
     def clasificar_equipo(self):
         """¿Qué es esta PC? Nueva sin tocar, en configuración, ya terminada, o la PC vieja (origen)."""
@@ -1362,13 +1497,6 @@ class App:
         d = os.path.join(U.dir_app(), "Instaladores")
         try:
             os.makedirs(d, exist_ok=True)
-            ley = os.path.join(d, "LEEME.txt")
-            if not os.path.exists(ley):
-                with open(ley, "w", encoding="utf-8") as f:
-                    f.write("Arrastra aquí los instaladores (.msi o .exe) de los programas que van en cada PC nueva.\n"
-                            "Mainbit los instala solos, en silencio, en orden alfabético (pon 01_, 02_ para ordenar).\n"
-                            "Si algún .exe no se instala en silencio, crea junto a él un archivo con su mismo nombre y\n"
-                            "extensión .args, con una sola línea con sus parámetros silenciosos (ej. /S o /quiet).\n")
         except OSError:
             pass
         return d
@@ -1705,6 +1833,11 @@ class App:
         except Exception as e:
             self.log(f"No se pudo generar el manual del usuario: {e}", "warn")
         # reinicio limpio: se borra el avance de ESTE equipo y se relanza el programa (la relación se conserva)
+        if getattr(self, "usb", {}).get("local"):
+            try:
+                os.remove(os.path.join(U.dir_app(), "credenciales.ini"))   # no dejar claves en texto plano en la PC
+            except OSError:
+                pass
         for k in ("recibido", "unido", "enviado", "info_vieja", "host_viejo", "transfer", "hostname", "registrado", "restaurado", "final_auto", "instalados", "receptor_ok"):
             self.estado.pop(k, None)
         self.guardar_estado()
@@ -1714,6 +1847,13 @@ class App:
 
     def terminar_grupo(self):
         """Cierra el SERVICIO completo (todas las PCs del grupo): reporte general y asistente de uno nuevo."""
+        if getattr(self, "usb", {}).get("local"):
+            import mb_local as L
+            if not L.buscar_usb():
+                messagebox.showinfo("Terminar servicio", "Inserta la USB «%s» para cerrar el servicio: ahí se guarda todo "
+                                    "y se junta lo de las demás PCs." % self.cfg.get("usb_etiqueta", "USB Blue"))
+                return
+            self._sincronizar_usb()
         h, i, pn = self.relacion.resumen()
         if not messagebox.askyesno("Terminar servicio",
                                    f"Se cerrará el servicio completo: {len(self.relacion.filas)} equipos "
@@ -1742,6 +1882,12 @@ class App:
             nombre = "".join(ch for ch in (self.cfg.get("empresa") or "Servicio") if ch.isalnum() or ch in " _-").strip() or "Servicio"
             dest = os.path.join(self.relacion.dir, "Servicios", f"{nombre}_{datetime.now():%Y-%m-%d_%H%M}")
             n = self.relacion.archivar_y_vaciar(dest)
+            if getattr(self, "usb", {}).get("local"):
+                import mb_local as L
+                ruta_usb = L.buscar_usb()
+                if ruta_usb:
+                    from mb_relacion import Relacion as _R
+                    _R(ruta_usb).archivar_y_vaciar(os.path.join(ruta_usb, "Servicios", os.path.basename(dest)))
             for f in os.listdir(carpeta):                       # copia de los reportes de este servicio (los originales se quedan)
                 p = os.path.join(carpeta, f)
                 if os.path.isfile(p):
@@ -1931,6 +2077,17 @@ class App:
         try:
             for nivel, t in self._avisos_previos():
                 job.log("⚠ " + t, nivel)
+            stage = None
+            try:
+                imps = (info or {}).get("impresoras") or []
+                if imps and not solo_analizar:
+                    self.estado_txt("Preparando drivers de impresoras…", "warn")
+                    stage = os.path.join(tempfile.gettempdir(), "_DRIVERS_IMPRESORAS")
+                    shutil.rmtree(stage, ignore_errors=True)
+                    if SYS.empaquetar_drivers(stage, imps, log=lambda t: job.log(t, None)):
+                        rutas = list(rutas) + [stage]
+            except Exception as e:
+                job.log(f"No se pudieron preparar los drivers: {e}", "warn")
             p.fase = "analizando"
             self.estado_txt("Analizando archivos…", "warn")
             job.log("Analizando: " + ", ".join(rutas), None)
@@ -2117,6 +2274,10 @@ class App:
         if not imps:
             self.ui(fr.set, None, "La PC vieja no envió impresoras (conéctala primero).")
             return
+        self.ui(fr.set, "run", "Instalando los drivers recibidos…")
+        okd, mald = SYS.instalar_drivers(os.path.join(self.destino, "_DRIVERS_IMPRESORAS"), log=lambda t: self.log(t, None))
+        if okd or mald:
+            self.log(f"Drivers: {len(okd)} instalados" + (f" · fallaron: {', '.join(mald)}" if mald else ""), "ok" if not mald else "warn")
         self.ui(fr.set, "run", f"Clonando {len(imps)} impresoras…")
         hechas, faltan, pred = [], [], None
         for imp in imps:
@@ -2242,9 +2403,35 @@ class App:
         RoundedButton(fr, "Cancelar", win.destroy, C["fill"], C["red"], C["card"], self.f(9, True), 36, 100).pack(side="right", padx=8)
 
 
+def _copiar_a_local(L):
+    """Abierto desde la USB: se copia a la PC y se relanza desde ahí (así la USB queda libre para otra PC)."""
+    import subprocess
+    aviso = threading.Thread(target=lambda: ctypes.windll.user32.MessageBoxW(
+        0, "Copiando Mainbit a esta PC (unos segundos). Cuando se abra, ya puedes sacar la USB.", "Mainbit", 0x40), daemon=True)
+    aviso.start()
+    exe = L.instalar_local(U.cargar_config())
+    try:
+        h = ctypes.windll.user32.FindWindowW(None, "Mainbit")
+        if h:
+            ctypes.windll.user32.PostMessageW(h, 0x10, 0, 0)
+    except Exception:
+        pass
+    if not exe:
+        return False
+    subprocess.Popen([exe] + [a for a in sys.argv[1:] if a != "--sin-copia"], close_fds=True, cwd=os.path.dirname(exe))
+    return True
+
+
 def main():
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+    try:
+        import mb_local as L
+        if "--sin-copia" not in sys.argv and L.debe_copiarse(U.cargar_config()):
+            if _copiar_a_local(L):
+                return
     except Exception:
         pass
     if "--clasico" not in sys.argv:

@@ -296,5 +296,28 @@ def _():
     sin_metodo = [a for a in K.Core.ACCIONES if not hasattr(K.Core, a)]
     assert not sin_metodo, sin_metodo
 
+@prueba("sin USB: copia local, sincronizar ⇄ USB sin perder datos, drivers, winget, perfil")
+def _():
+    import mb_local as L, mb_relacion as R, mb_sistema as SYS
+    usb, loc = tempfile.mkdtemp(), tempfile.mkdtemp()
+    ru, rl = R.Relacion(usb), R.Relacion(loc)
+    ru.agregar_pendientes(["Ana Lopez"]); ru.guardar()
+    rl.agregar_pendientes(["Ana Lopez", "Luis Perez"]); rl.filas[-1]["Serie cpu Nuevo"] = "ZZ99999"; rl.guardar()
+    os.makedirs(os.path.join(loc, "Reportes")); open(os.path.join(loc, "Reportes", "a.txt"), "w").write("uno")
+    os.makedirs(os.path.join(usb, "Reportes")); open(os.path.join(usb, "Reportes", "a.txt"), "w").write("distinto!")
+    os.makedirs(os.path.join(usb, "Instaladores")); open(os.path.join(usb, "Instaladores", "x.msi"), "w").write("m")
+    res = L.sincronizar(loc, usb, host="PCX")
+    assert len(R.Relacion(usb).filas) >= 2, res                      # lo de la PC llegó a la USB
+    assert os.path.exists(os.path.join(usb, "Reportes", "a.txt")) and os.path.exists(os.path.join(usb, "Reportes", "a_PCX.txt"))
+    assert open(os.path.join(usb, "Reportes", "a.txt")).read() == "distinto!"   # nada se pisó
+    assert os.path.exists(os.path.join(loc, "Instaladores", "x.msi"))          # y lo de la USB llegó a la PC
+    L.sincronizar(loc, usb, host="PCX")                                         # idempotente
+    assert len(R.Relacion(usb).filas) == len(R.Relacion(loc).filas)
+    assert isinstance(SYS.winget_disponible(), bool)
+    assert SYS.empaquetar_drivers(tempfile.mkdtemp(), [{"nombre": "X", "driver": "Driver Inexistente"}]) == []
+    ok, msg = SYS.crear_perfil_dominio("usuario.inexistente", "no.existe.local")
+    assert ok is False and msg
+    assert SYS.instalar_drivers(tempfile.mkdtemp()) == ([], [])
+
 print("\nRESUMEN:", "TODO OK" if not fallos else "FALLAN -> " + ", ".join(fallos))
 sys.exit(1 if fallos else 0)

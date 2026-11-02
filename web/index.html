@@ -229,6 +229,7 @@ const cargando='<div style="color:var(--ink3);font-size:13px;padding:8px 0">Carg
 function P0(){const i=S&&S.info||{},v=S&&S.vieja,ips=(S&&S.ips)||[],cable=ips.find(x=>x.cable)||ips[0];
  return [G(H2('Este equipo'),
    ROW(1,DOT(i.admin?'ok':'err'),esc(((i.fabricante||'')+' '+(i.modelo||'')).trim()||'Equipo'),`Serie CPU ${esc(sv('v_serie','—')||'—')}${i.serie_fuente?' · '+esc(i.serie_fuente):''}`,`<span class="chip">${i.admin?'Administrador':'Sin permisos de administrador'}</span>`),
+   S&&S.usb&&S.usb.local?ROW(0,DOT(S.usb.presente&&!S.usb.pendiente?'ok':'warn'),S.usb.presente?(S.usb.pendiente?'Guardando en la USB…':'USB al día: ya puedes sacarla'):'USB fuera: puedes seguir trabajando',S.usb.presente?esc(S.usb.msg||''):'Al terminar, inserta «USB Blue»: se guarda todo y recibes lo de las demás PCs',SB('Sincronizar','sincronizar_usb')):'',
    S&&S.equipo?ROW(0,DOT(S.equipo.tipo==='nueva'||S.equipo.tipo==='terminada'?'ok':'warn'),esc(S.equipo.texto),''):'',
    H2('Recibir de la PC vieja'),LBL('IP DE ESTE EQUIPO (CABLE)'),
    cable?`<div class="ip" style="color:var(--accent)">${esc(cable.ip)}</div>${sub(cable.cable?'← escribe esta en la PC vieja':esc(cable.etq))}`:`<div class="ip" style="color:var(--wc,#ff9f0a);font-size:22px">Sin IP: conecta el cable</div>`,
@@ -269,6 +270,8 @@ function P2(){const b=(t,a)=>SB(t,a);
    FILA(1,'dominio','Equipo en el dominio',b('Revisar','chk_dominio')),FILA(0,'ivanti','Agente IVANTI',b('Revisar','chk_ivanti')),
    FILA(0,'politicas','Políticas aplicadas',b('Aplicar','chk_politicas')),FILA(0,'fuentes','Tipografías',b('Instalar','accion_fuentes')),
    FILA(0,'impresora','Impresora de red',b('Conectar','chk_impresora')),FILA(0,'impvieja','Impresoras de la PC vieja',b('Clonar','chk_clonar_impresoras')),
+   FILA(0,'perfil','Perfil del usuario de la PC vieja',b('Crear','chk_perfil_dominio')),
+   FILA(0,'apps','Apps de la PC vieja que faltan',b('Instalar','instalar_faltantes')),
    FILA(0,'programas','Programas de la carpeta Instaladores ('+((S&&S.n_instaladores)||0)+')',b('Abrir carpeta','abrir_instaladores')+b('Instalar','instalar_programas')),
    FILA(0,'datos','Datos al perfil del usuario',b('Restaurar','abrir_restaurar')),FLEX,
    B('Manual para el usuario (dónde quedó todo)','generar_manual',{s:'margin-bottom:10px'}),
@@ -467,7 +470,8 @@ async function init2(){
  const p=S.prefs||{};if(p.a!=null){rng.value=p.a;ST.solid=false}
  if(p.solid)setMode(true);else setA(+(rng.value));
  try{const v=await PY().vidrio();setReal(!!(v&&v.ok));setA(+rng.value);sendGlass()}catch(e){setReal(false)}
- const ar=await PY().arranque();if(ar==='nuevo'){document.body.classList.add('wiz');setMod(1);showModule(1)}}
+ const ar=await PY().arranque();if(ar==='nuevo'){document.body.classList.add('wiz');setMod(1);showModule(1)}
+ if(S.equipo&&S.equipo.tipo==='vieja'&&rcur!==1)gotoRole(1)}
 
 /* ---------- eventos ---------- */
 document.addEventListener('click',e=>{

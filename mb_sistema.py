@@ -1013,9 +1013,18 @@ def gpo_nombres_de_xml(xml_texto):
     return list(dict.fromkeys(nombres))
 
 
+def _gpo_desde_registro():
+    """Respaldo: nombres de las GPO aplicadas según el historial de directivas del equipo (no depende del idioma)."""
+    rc, out, _ = ps(
+        "$k='HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Group Policy\\History\\{35378EAC-683F-11D2-A89A-00C04FBBCFA2}';"
+        "if(Test-Path $k){Get-ChildItem $k | ForEach-Object{(Get-ItemProperty $_.PSPath).DisplayName} | "
+        "Where-Object{$_} | Select-Object -Unique}", timeout=30)
+    return [x.strip() for x in (out or "").splitlines() if x.strip()]
+
+
 def actualizar_politicas():
-    """gpupdate /force y devuelve (ok, [GPO aplicadas])."""
-    rc, out, err = run(["gpupdate", "/force"], timeout=240, entrada=b"n\n")
+    """gpupdate /force y devuelve (ok, [GPO aplicadas]). ok = gpupdate terminó bien."""
+    rc, out, err = run(["gpupdate", "/force", "/wait:120"], timeout=300, entrada=b"n\nn\n")
     tmp = os.path.join(tempfile.gettempdir(), "mb_gpresult.xml")
     rc2, out2, err2 = run(["gpresult", "/scope", "computer", "/x", tmp, "/f"], timeout=120)
     nombres = []
@@ -1029,6 +1038,8 @@ def actualizar_politicas():
             os.remove(tmp)
         except OSError:
             pass
+    if not nombres:
+        nombres = _gpo_desde_registro()
     return rc == 0, nombres
 
 
@@ -1255,3 +1266,146 @@ def instalar_programa(ruta, log=None, timeout=900):
         if rc in (0, 3010, 1641):
             return True, "Instalado" + (" (pide reiniciar)" if rc != 0 else "")
     return False, "No se pudo en silencio: ábrelo a mano o crea «" + nombre + ".args» con sus parámetros silenciosos"
+
+
+# ----------------------------------------------------------------------
+# Drivers de impresora de la PC vieja → PC nueva
+# ----------------------------------------------------------------------
+def empaquetar_drivers(stage, impresoras, log=None):
+    """PC VIEJA: copia a `stage` la carpeta del paquete de driver (INF + archivos) de cada impresora local.
+    Devuelve la lista [{driver, carpeta, inf}] (también la deja en stage/drivers.json)."""
+    import shutil
+    res = []
+    if not IS_WIN:
+        return res
+    nombres = sorted({i.get("driver") for i in impresoras or []
+                      if i.get("driver") and not str(i.get("nombre", "")).startswith("\\\\")})
+    os.makedirs(stage, exist_ok=True)
+    for n, drv in enumerate(nombres, 1):
+        rc, out, _ = ps("(Get-PrinterDriver -Name %s -ErrorAction SilentlyContinue | Select-Object -First 1).InfPath" % ps_q(drv),
+                        timeout=40)
+        inf = (out or "").strip().splitlines()[-1].strip() if (out or "").strip() else ""
+        if not inf or not os.path.isfile(inf):
+            continue
+        carpeta = os.path.dirname(inf)
+        if "filerepository" not in carpeta.lower():            # driver que ya trae Windows: no hace falta copiarlo
+            continue
+        destino = os.path.join(stage, f"{n:02d}")
+        try:
+            shutil.copytree(carpeta, destino, dirs_exist_ok=True)
+        except (OSError, shutil.Error) as e:
+            if log:
+                log(f"Driver «{drv}»: no se pudo copiar ({e})")
+            continue
+        res.append({"driver": drv, "carpeta": f"{n:02d}", "inf": os.path.basename(inf)})
+        if log:
+            log(f"Driver «{drv}» preparado para enviar")
+    escribir_json(os.path.join(stage, "drivers.json"), res) if res else None
+    return res
+
+
+def instalar_drivers(carpeta, log=None):
+    """PC NUEVA: instala los drivers recibidos (pnputil + Add-PrinterDriver). Devuelve (instalados, fallos)."""
+    ruta = os.path.join(carpeta, "drivers.json")
+    if not IS_WIN or not os.path.isfile(ruta):
+        return [], []
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            lista = json.load(f)
+    except (OSError, ValueError):
+        return [], []
+    ok, mal = [], []
+    for d in lista:
+        inf = os.path.join(carpeta, d["carpeta"], d["inf"])
+        if not os.path.isfile(inf):
+            mal.append(d["driver"])
+            continue
+        rc, out, err = run(["pnputil", "/add-driver", inf, "/install"], timeout=240)
+        rc2, out2, _ = ps("try{Add-PrinterDriver -Name %s -ErrorAction Stop;'MB_OK'}catch{"
+                          "if($_.Exception.Message -match 'already|ya '){'MB_OK'}else{'MB_ERR|'+$_.Exception.Message}}"
+                          % ps_q(d["driver"]), timeout=120)
+        if "MB_OK" in out2:
+            ok.append(d["driver"])
+            if log:
+                log(f"Driver «{d['driver']}» instalado")
+        else:
+            mal.append(d["driver"])
+            if log:
+                log(f"Driver «{d['driver']}»: {out2.strip()[:140]}")
+    return ok, mal
+
+
+# ----------------------------------------------------------------------
+# Apps que faltan: winget (necesita internet)
+# ----------------------------------------------------------------------
+def winget_disponible():
+    import shutil
+    return bool(IS_WIN and shutil.which("winget"))
+
+
+def _winget_buscar(nombre):
+    rc, out, _ = run(["winget", "search", nombre, "--source", "winget", "--accept-source-agreements",
+                      "--disable-interactivity"], timeout=90)
+    filas, ini = [], False
+    for ln in (out or "").splitlines():
+        if ln.startswith("---"):
+            ini = True
+            continue
+        if ini and ln.strip():
+            col = re.split(r"\s{2,}", ln.strip())
+            if len(col) >= 2:
+                filas.append((col[0], col[1]))
+    norm = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
+    for n, i in filas:
+        if norm(n) == norm(nombre) or norm(nombre).startswith(norm(n)) and len(norm(n)) > 4:
+            return i
+    return None
+
+
+def winget_instalar(nombre, log=None):
+    """Busca por nombre e instala en silencio. Devuelve (ok, detalle)."""
+    ident = _winget_buscar(nombre)
+    if not ident:
+        return False, "no aparece en winget"
+    rc, out, err = run(["winget", "install", "--id", ident, "-e", "--source", "winget", "--silent",
+                        "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"],
+                       timeout=1500)
+    if rc in (0, -1978335189):                       # instalado / ya estaba al día
+        return True, ident
+    return False, f"{ident}: código {rc}"
+
+
+# ----------------------------------------------------------------------
+# Perfil del usuario de dominio (se crea sin que tenga que iniciar sesión)
+# ----------------------------------------------------------------------
+def crear_perfil_dominio(usuario, dominio=""):
+    """Crea la carpeta de perfil de un usuario de dominio con userenv!CreateProfile.
+    Devuelve (ok, mensaje). Necesita que la PC ya esté en el dominio y alcance al controlador."""
+    if not IS_WIN:
+        return False, "Solo en Windows"
+    u = (usuario or "").strip()
+    if "\\" in u:
+        u = u.split("\\", 1)[1]
+    if "@" in u:
+        u = u.split("@", 1)[0]
+    if not u:
+        return False, "No se conoce el usuario de la PC vieja"
+    net = (dominio or "").split(".")[0].upper()
+    cands = [f"{net}\\{u}"] if net else []
+    cands += [f"{u}@{dominio}" if dominio else "", u]
+    lista = ",".join(ps_q(c) for c in cands if c)
+    script = (
+        "$ErrorActionPreference='Stop';$sid=$null;"
+        "foreach($c in @(%s)){ try{ $sid=(New-Object System.Security.Principal.NTAccount($c)).Translate("
+        "[System.Security.Principal.SecurityIdentifier]).Value; break }catch{} };"
+        "if(-not $sid){'MB_SINSID';return};"
+        "Add-Type -MemberDefinition '[DllImport(\"userenv.dll\",CharSet=CharSet.Unicode)] public static extern int "
+        "CreateProfile(string sid,string name,System.Text.StringBuilder path,uint size);' -Name P -Namespace MB;"
+        "$sb=New-Object System.Text.StringBuilder 260;$hr=[MB.P]::CreateProfile($sid,%s,$sb,260);"
+        "if($hr -eq 0 -or $hr -eq -2147024713){'MB_OK|'+$sb.ToString()}else{'MB_ERR|'+$hr}" % (lista, ps_q(u)))
+    rc, out, _ = ps(script, timeout=120)
+    if "MB_OK" in out:
+        return True, "Perfil listo en " + (out.split("|", 1)[1].strip() or "C:\\Users\\" + u)
+    if "MB_SINSID" in out:
+        return False, "Windows no encontró al usuario en el dominio (¿ya se unió y hay red hacia el controlador?)"
+    return False, "No se pudo crear el perfil (" + out.strip()[:80] + ")"

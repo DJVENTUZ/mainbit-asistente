@@ -391,13 +391,10 @@ def _clave(f):
 
 def _importar(self, ruta):
     """Fusiona una tabla externa con la relación actual. Nunca pisa un dato existente:
-    llena huecos, agrega filas nuevas y reporta conflictos. Hace copia de seguridad antes."""
+    llena huecos, agrega filas nuevas y reporta conflictos. No pisa datos existentes y no crea archivos extra."""
     filas, rec, ign = leer_tabla(ruta)
     rep = {"archivo": os.path.basename(ruta), "leidas": len(filas), "nuevas": 0, "completadas": 0,
            "iguales": 0, "conflictos": [], "ignoradas": ign, "copia": ""}
-    if os.path.exists(self.csv):
-        rep["copia"] = self.csv + ".antes_de_importar_" + datetime.now().strftime("%Y%m%d_%H%M%S")
-        shutil.copy2(self.csv, rep["copia"])
     indice = {}
     for i, f in enumerate(self.filas):
         indice.setdefault(_clave(f), i)

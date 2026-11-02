@@ -15,6 +15,9 @@ VERSION_COMPLETA = VERSION + ("" if BUILD == "local" else " · " + BUILD)
 IS_WIN = os.name == "nt"
 
 DEFAULTS = {
+    "modo_local": True,           # al abrir desde la USB, la app se copia a la PC y la USB se puede sacar
+    "usb_etiqueta": "USB Blue",   # nombre del volumen de la USB (para reconocerla al volver a insertarla)
+    "auto_winget": True,          # instalar con winget las apps que faltan de la PC vieja
     "unidad": "124",              # Unidad administrativa (parte 1 del hostname)
     "empresa": "M",               # Empresa Mainbit (parte 2)
     "tipo_defecto": "D2 Y P03",

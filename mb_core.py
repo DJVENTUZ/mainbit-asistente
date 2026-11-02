@@ -233,6 +233,7 @@ class Core(A.App):
         self.hilo = threading.Thread(target=self._bucle, daemon=True)
         self.hilo.start()
         self.en_hilo("info", self._cargar_info)
+        self._arranque_automatico()
 
     # ---- widgets fantasma bajo demanda
     def __getattr__(self, n):
@@ -643,7 +644,7 @@ class Core(A.App):
         nuevos = SV.programas_instalados()
         faltan, ruido, ya = SV.comparar(viejos, nuevos) if viejos else ([], 0, 0)
         return {"hay_vieja": bool(viejos), "viejos": len(viejos), "nuevos": len(nuevos), "ya": ya,
-                "faltan": [str(x) for x in faltan][:300]}
+                "faltan": [x["nombre"] if isinstance(x, dict) else str(x) for x in faltan][:300]}
 
     def datos_reportes(self):
         base = U.dir_escribible(U.dir_app())
@@ -811,7 +812,7 @@ class Core(A.App):
             "rel": {"filas": self.relacion.filas, "hechos": h, "incompletos": inc, "pendientes": pn,
                     "ruta": self.relacion.xlsx},
             "modal": self.modal_activo, "vista": getattr(self, "pedir_vista", None),
-            "arranque": getattr(self, "arranque_info", None), "equipo": self.clasificar_equipo(), "n_instaladores": len(SYS.listar_instaladores(self.dir_instaladores())),
+            "arranque": getattr(self, "arranque_info", None), "usb": getattr(self, "usb", None), "equipo": self.clasificar_equipo(), "n_instaladores": len(SYS.listar_instaladores(self.dir_instaladores())),
             "version": U.VERSION_COMPLETA, "es_win": SYS.IS_WIN, "tareas": sorted(self.tareas),
             "logs": [x for x in self.logs if x["n"] > desde_log], "log_seq": self.log_seq,
             "log_gen": getattr(self, "log_gen", 0), "prefs": self.prefs(), "fuentes_url": self.cfg.get("fuentes_url", ""),
@@ -822,7 +823,7 @@ class Core(A.App):
         "iniciar_receptor", "cancelar", "cambiar_destino", "buscar", "accion_emisor", "toggle_ip_fija",
         "conectar_wifi", "verificar_red", "sincronizar_hora", "actualizar_hostname", "solo_renombrar",
         "unir_dominio", "chk_dominio", "chk_ivanti", "chk_politicas", "accion_fuentes", "chk_impresora",
-        "chk_clonar_impresoras", "fuentes_desde_internet", "ejecutar_todo", "abrir_instaladores", "instalar_programas", "add_instaladores", "quitar_instalador", "abrir_restaurar", "restaurar", "guardar_relacion",
+        "chk_clonar_impresoras", "fuentes_desde_internet", "ejecutar_todo", "abrir_instaladores", "sincronizar_usb", "instalar_programas", "chk_perfil_dominio", "instalar_faltantes", "add_instaladores", "quitar_instalador", "abrir_restaurar", "restaurar", "guardar_relacion",
         "generar_evidencia", "diagnostico_monitores", "verificar_liberar", "generar_manual", "terminar_servicio", "terminar_grupo",
         "add_carpeta", "add_archivos", "quitar_extra", "importar_tabla_ruta", "cambiar_modo", "cambiar_sub",
         "elegir_pendiente_idx", "abrir_ruta", "reiniciar_app", "buscar_actualizacion", "actualizar_ahora",
@@ -833,5 +834,5 @@ class Core(A.App):
               "guardar_relacion", "terminar_grupo", "restaurar", "importar_tabla_ruta", "cambiar_destino", "add_carpeta",
               "add_archivos", "abrir_restaurar", "diagnostico_monitores", "verificar_liberar", "actualizar_ahora",
               "conectar_wifi", "verificar_red", "ejecutar_todo", "chk_dominio", "chk_ivanti", "chk_politicas",
-              "chk_clonar_impresoras", "fuentes_desde_internet", "instalar_programas", "chk_impresora", "accion_fuentes", "generar_evidencia", "generar_manual",
+              "chk_clonar_impresoras", "fuentes_desde_internet", "sincronizar_usb", "instalar_programas", "chk_perfil_dominio", "instalar_faltantes", "chk_impresora", "accion_fuentes", "generar_evidencia", "generar_manual",
               "toggle_ip_fija", "buscar", "sincronizar_hora", "buscar_actualizacion"}

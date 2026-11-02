@@ -87,8 +87,20 @@ def iniciar(carpeta, puerto=PORT_ARRANQUE):
     return srv
 
 
+def url_base(ip, puerto):
+    return f"http://{ip}" if int(puerto) == 80 else f"http://{ip}:{puerto}"
+
+
+def iniciar_auto(carpeta):
+    """Puerto 80 (la dirección es solo la IP, fácil de escribir); si está ocupado, el 50010. Devuelve (servidor, puerto)."""
+    try:
+        return iniciar(carpeta, 80), 80
+    except OSError:
+        return iniciar(carpeta, PORT_ARRANQUE), PORT_ARRANQUE
+
+
 def comando_vieja(ip, puerto=PORT_ARRANQUE):
     """Línea de PowerShell para pegar en la PC vieja."""
-    return (f"$d=\"$env:USERPROFILE\\Desktop\\MB.zip\"; iwr http://{ip}:{puerto}/app.zip -OutFile $d; "
+    return (f"$d=\"$env:USERPROFILE\\Desktop\\MB.zip\"; iwr {url_base(ip, puerto)}/app.zip -OutFile $d; "
             f"Expand-Archive $d \"$env:USERPROFILE\\Desktop\" -Force; "
             f"Start-Process \"$env:USERPROFILE\\Desktop\\MainbitAsistente\\MainbitAsistente.exe\" -Verb RunAs")
