@@ -438,6 +438,7 @@ def disponible():
 
 
 def main():
+    os.environ["PYTHONNET_RUNTIME"] = "netfx"
     import webview
     import mb_core
     os.environ.setdefault("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000")   # el contenido web no pinta fondo propio
