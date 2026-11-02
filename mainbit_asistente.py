@@ -2460,20 +2460,29 @@ def main():
                 return
     except Exception:
         pass
+    motivo = ""
     if "--clasico" not in sys.argv:
         try:
             import mb_ui
             if mb_ui.disponible():
                 mb_ui.main()
                 return
+            motivo = "La interfaz nueva no está completa en esta carpeta (falta web/index.html o el componente WebView)."
         except Exception as e:      # sin WebView2 u otro problema: se abre la interfaz clásica
-            try:
-                with open(os.path.join(U.dir_datos(), "arranque_error.txt"), "w", encoding="utf-8") as f:
-                    f.write(repr(e))
-            except OSError:
-                pass
+            import traceback
+            motivo = traceback.format_exc()
+        try:
+            with open(os.path.join(U.dir_datos(), "arranque_error.txt"), "w", encoding="utf-8") as f:
+                f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\nCarpeta: {U.dir_app()}\n{motivo}")
+        except OSError:
+            pass
     raiz = tk.Tk()
     app = App(raiz)
+    if motivo:
+        raiz.after(900, lambda: messagebox.showwarning(
+            "Interfaz clásica",
+            "No se pudo abrir la interfaz nueva, por eso ves la clásica. Tus datos están intactos.\n\n"
+            "Detalle (mándamelo):\n" + motivo[-600:] + "\n\nGuardado en:\n" + os.path.join(U.dir_datos(), "arranque_error.txt")))
     if "--nuevo" in sys.argv:
         raiz.after(700, app.wizard_nuevo)
     raiz.mainloop()

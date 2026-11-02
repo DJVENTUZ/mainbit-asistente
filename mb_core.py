@@ -717,10 +717,17 @@ class Core(A.App):
         app = U.dir_app()
         bat = os.path.join(tmp, "aplicar.bat")
         with open(bat, "w", encoding="utf-8") as f:
-            f.write("@echo off\r\ntimeout /t 3 /nobreak >nul\r\n"
+            exe = os.path.basename(sys.executable)
+            f.write("@echo off\r\n"
+                    "timeout /t 4 /nobreak >nul\r\n"
+                    f'taskkill /f /im "{exe}" >nul 2>&1\r\n'
+                    "timeout /t 2 /nobreak >nul\r\n"
+                    f'rmdir /s /q "{tmp}\\x" >nul 2>&1\r\n'
                     f'powershell -NoProfile -Command "Expand-Archive -LiteralPath \'{z}\' -DestinationPath \'{tmp}\\x\' -Force"\r\n'
-                    f'xcopy /e /y /q "{tmp}\\x\\MainbitAsistente\\*" "{app}\\" >nul\r\n'
-                    f'start "" "{app}\\MainbitAsistente.exe"\r\n')
+                    f'if not exist "{tmp}\\x\\MainbitAsistente\\{exe}" exit /b 1\r\n'
+                    f'robocopy "{tmp}\\x\\MainbitAsistente" "{app}" /E /R:10 /W:2 /NFL /NDL /NJH /NJS /NP >nul\r\n'
+                    f'start "" "{app}\\{exe}"\r\n'
+                    f'rmdir /s /q "{tmp}\\x" >nul 2>&1\r\n')
         import subprocess
         subprocess.Popen(["cmd", "/c", bat], creationflags=0x08000000, close_fds=True)
         self.pedir_cierre()
