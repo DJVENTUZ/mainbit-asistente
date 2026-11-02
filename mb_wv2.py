@@ -79,7 +79,7 @@ class _Handler:
 
         def inv(this, a, b):
             try:
-                fn(a, b)
+                fn(a or 0, b or 0)
             except Exception:
                 import traceback
                 log("ERROR en manejador: " + traceback.format_exc()[-600:])
