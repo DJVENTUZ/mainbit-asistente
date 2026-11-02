@@ -33,9 +33,22 @@ jobs:
             if ($m -eq "--prueba-hijo" -and (-not $r2 -or $r2 -notmatch '"ok": true')) { Write-Host "::error::La app abierta por otra copia de sí misma no abrió la interfaz nueva: $r2"; exit 1 }
             Remove-Item dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
           }
+          # Simula un equipo SIN .NET Core (como el del técnico): no debe impedir la interfaz nueva
+          Remove-Item "$env:ProgramData\MainbitAsistente\arranque_error.txt" -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path C:\sin_dotnet | Out-Null
+          $env:DOTNET_ROOT = "C:\sin_dotnet"; $env:DOTNET_ROOT_X64 = "C:\sin_dotnet"; $env:DOTNET_MULTILEVEL_LOOKUP = "0"; $env:DOTNET_gcServer = "0"
+          $env:DOTNET_ROOT_FORCE = "1"
+          $w = Start-Process -FilePath dist\MainbitAsistente\MainbitAsistente.exe -ArgumentList "--prueba-ui","--sin-copia" -PassThru
+          if (-not $w.WaitForExit(150000)) { $w.Kill() }
+          $r3 = Get-Content dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
+          $e3 = Get-Content "$env:ProgramData\MainbitAsistente\arranque_error.txt" -Raw -ErrorAction SilentlyContinue
+          Write-Host "::notice title=SIN .NET CORE::probe=$r3 || error=$e3"
+          Remove-Item env:DOTNET_ROOT,env:DOTNET_ROOT_X64,env:DOTNET_MULTILEVEL_LOOKUP -ErrorAction SilentlyContinue
+          Remove-Item dist\MainbitAsistente\uiprobe.txt -ErrorAction SilentlyContinue
           python -m pip install pillow
           $c = python tests\ci_cristal.py dist\MainbitAsistente\MainbitAsistente.exe E R@acrilico 2>&1 | Out-String
           Write-Host "::notice title=CRISTAL::$c"
+          Copy-Item ABRIR_DESDE_USB.bat dist\MainbitAsistente\ABRIR_DESDE_USB.bat
           Compress-Archive -Path dist\MainbitAsistente -DestinationPath MainbitAsistente.zip -Force
       - name: Publicar release "latest"
         shell: pwsh

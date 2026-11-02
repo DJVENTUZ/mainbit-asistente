@@ -439,16 +439,20 @@ def disponible():
 
 def main():
     import pythonnet
-    ultimo = None
+    fallos = []
     for spec in (None, "netfx", "coreclr"):      # el que funcione en este equipo
         try:
             pythonnet.load(spec) if spec else pythonnet.load()
-            ultimo = None
+            fallos = []
             break
         except Exception as e:
-            ultimo = e
-    if ultimo:
-        raise ultimo
+            cadena, x = [], e
+            while x is not None and len(cadena) < 4:
+                cadena.append(f"{type(x).__name__}: {str(x).strip()[:160]}")
+                x = x.__cause__ or x.__context__
+            fallos.append(f"[{spec or 'default'}] " + " <- ".join(cadena))
+    if fallos:
+        raise RuntimeError("NO CARGA .NET | " + " || ".join(fallos))
     import webview
     import mb_core
     os.environ.setdefault("WEBVIEW2_DEFAULT_BACKGROUND_COLOR", "00000000")   # el contenido web no pinta fondo propio

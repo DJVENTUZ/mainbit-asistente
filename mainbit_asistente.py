@@ -2482,7 +2482,7 @@ def main():
             motivo = "La interfaz nueva no está completa en esta carpeta (falta web/index.html o el componente WebView)."
         except Exception as e:      # sin WebView2 u otro problema: se abre la interfaz clásica
             import traceback
-            motivo = traceback.format_exc()
+            motivo = str(e)[:900] + "\n\n" + traceback.format_exc()[-700:]
             try:
                 import importlib.metadata as _md
                 motivo += "\n[pythonnet %s · PYTHONNET_RUNTIME=%r · app=%s]" % (_md.version("pythonnet"), os.environ.get("PYTHONNET_RUNTIME"), U.dir_app())
@@ -2493,6 +2493,19 @@ def main():
                 f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')}\nCarpeta: {U.dir_app()}\n{motivo}")
         except OSError:
             pass
+    if motivo and "--sin-copia" not in sys.argv:       # la copia local no pudo abrir la interfaz nueva: probar la de la USB
+        try:
+            import mb_local as L
+            ruta = L.buscar_usb() if L.es_local() else None
+            exe_usb = os.path.join(ruta, os.path.basename(sys.executable)) if ruta else ""
+            if exe_usb and os.path.isfile(exe_usb):
+                import subprocess
+                with open(os.path.join(U.dir_datos(), "arranque_error.txt"), "a", encoding="utf-8") as f:
+                    f.write("\n-> se intentó abrir la copia de la USB con --sin-copia\n")
+                subprocess.Popen([exe_usb, "--sin-copia"], close_fds=True, cwd=ruta, env=U.entorno_limpio())
+                return
+        except Exception:
+            pass
     raiz = tk.Tk()
     app = App(raiz)
     if motivo:
@@ -2500,7 +2513,7 @@ def main():
             "Interfaz clásica",
             "No se pudo abrir la interfaz nueva, por eso ves la clásica. Tus datos están intactos.\n\n" +
             ("LA CARPETA DEL PROGRAMA TIENE ARCHIVOS DE VARIAS VERSIONES MEZCLADOS (%s).\nBorra la carpeta «_internal» dentro de %s y vuelve a ejecutar ACTUALIZAR_USB.bat.\n\n" % (", ".join(U.mezcla_de_versiones()[:4]), U.dir_app()) if U.mezcla_de_versiones() else "") +
-            "Detalle (mándamelo):\n" + motivo[-600:] + "\n\nGuardado en:\n" + os.path.join(U.dir_datos(), "arranque_error.txt")))
+            "Detalle (mándamelo):\n" + motivo[:900] + "\n\nGuardado en:\n" + os.path.join(U.dir_datos(), "arranque_error.txt")))
     if "--nuevo" in sys.argv:
         raiz.after(700, app.wizard_nuevo)
     raiz.mainloop()
