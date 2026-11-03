@@ -65,6 +65,7 @@ body{font-family:"Inter","Segoe UI Variable Display","Segoe UI",system-ui,sans-s
 .page{position:absolute;inset:0;display:grid;grid-template-columns:1fr 1fr;gap:16px;align-content:stretch}
 .page>.glass{min-height:0}
 .card{padding:22px 24px;display:flex;flex-direction:column;gap:12px;will-change:transform,opacity,filter}
+.card.split{overflow:hidden!important}.card.split .cbody{flex:1;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:inherit;padding-right:4px;scrollbar-width:thin}.card.split .cbody::-webkit-scrollbar{width:6px}.card.split .cbody::-webkit-scrollbar-thumb{background:var(--line);border-radius:9px}.card.split .cfoot{flex:none;display:flex;flex-direction:column;gap:inherit;padding-top:6px}
 .card h2{font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink3);font-weight:700}
 .row,.card>h2{transition:--plate .8s;background:var(--plate,transparent);border-radius:12px}
 .row{display:flex;align-items:center;gap:14px;padding:11px 0;border-top:1px solid var(--line)}
@@ -219,7 +220,8 @@ const VARPW=(k,ph)=>`<input class="inp" type="password" data-pw="${k}" placehold
 const FI=(k,o={})=>`<input class="inp" ${o.pw?'type="password"':''} data-f="${k}" value="${esc(F[k]==null?'':F[k])}" placeholder="${esc(o.ph||'')}" autocomplete="off" spellcheck="false">`;
 const ROW=(first,dot,tit,sub,right='')=>`<div class="row ${first?'f':''}">${dot||''}<div class="t"><b>${tit}</b>${sub!==''&&sub!=null?`<span>${sub}</span>`:''}</div>${right}</div>`;
 const FILA=(first,k,tit,btn)=>{const f=fin(k);return ROW(first,DOT(f.nivel),tit,esc(f.text||'Sin revisar'),btn||'')};
-const G=(...c)=>`<div class="glass card">${c.join('')}</div>`;
+const G=(...c)=>{const i=c.indexOf(FLEX);if(i<0)return `<div class="glass card">${c.join('')}</div>`;
+ return `<div class="glass card split"><div class="cbody">${c.slice(0,i).join('')}</div><div class="cfoot">${c.slice(i+1).join('')}</div></div>`};
 const H2=t=>`<h2>${t}</h2>`;
 const FLEX='<div style="flex:1"></div>';
 const LBL=t=>`<div class="lbl" style="margin-top:4px">${t}</div>`;

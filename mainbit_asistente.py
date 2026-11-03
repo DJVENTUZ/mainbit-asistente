@@ -1398,14 +1398,19 @@ class App:
         if not SYS.winget_disponible():
             self.ui(fr.set, "warn", f"Faltan {len(faltan)} apps; winget no está disponible: ponlas en la carpeta Instaladores")
             return
-        hechas, sin = [], []
+        hechas, sin, bloq_w = [], [], []
         for i, nom in enumerate(faltan, 1):
             self.ui(fr.set, "run", f"Instalando {i}/{len(faltan)}: {nom}…")
             ok, det = SYS.winget_instalar(nom)
             self.log(f"{nom}: {'instalada' if ok else det}", "ok" if ok else "warn")
             (hechas if ok else sin).append(nom)
+            if not ok and "BLOQUEADO" in det:
+                bloq_w.append(nom)
         self.res["apps_winget"] = {"ok": hechas, "sin": sin}
-        det = f"{len(hechas)} instaladas" + (f" · {len(sin)} a mano (no están en winget): " + ", ".join(sin[:5]) + ("…" if len(sin) > 5 else "") if sin else "")
+        if bloq_w:
+            self.log("Bloqueadas por la seguridad de Windows (no es un error de la app): " + ", ".join(bloq_w) +
+                     ". Pide a seguridad que las permita o instálalas desde el Centro de software.", "warn")
+        det = f"{len(hechas)} instaladas" + (f" · {len(bloq_w)} bloqueadas por seguridad" if bloq_w else "") + (f" · {len(sin)} a mano (no están en winget): " + ", ".join(sin[:5]) + ("…" if len(sin) > 5 else "") if sin else "")
         self.ui(fr.set, "ok" if not sin else "warn", det)
 
     # ---------------------------------------------------------------- USB: sincronizar al volver a insertarla
@@ -1538,7 +1543,7 @@ class App:
             self.log(f"Sin instaladores en {d}", "warn")
             return
         hechos = self.estado.setdefault("instalados", {})
-        ok_n, fallos, saltados = 0, [], 0
+        ok_n, fallos, saltados, bloqueados = 0, [], 0, []
         for i, ruta in enumerate(archivos, 1):
             nombre = os.path.basename(ruta)
             firma = f"{nombre}|{os.path.getsize(ruta)}"
@@ -1549,6 +1554,10 @@ class App:
             self.estado_txt(f"Instalando {nombre}…", "warn")
             ok, det = SYS.instalar_programa(ruta, log=lambda t: self.log(t, None))
             self.log(f"{nombre}: {det}", "ok" if ok else "err")
+            if not ok and det.startswith("BLOQUEADO"):
+                bloqueados.append(nombre)
+                h = SYS.sha256(ruta) if os.path.exists(ruta) else ""
+                self.log(f"Para pedir que lo permitan: {nombre}" + (f" · SHA-256 {h}" if h else ""), "warn")
             if ok:
                 ok_n += 1
                 hechos[firma] = datetime.now().isoformat(timespec="seconds")
@@ -1556,7 +1565,10 @@ class App:
             else:
                 fallos.append(nombre)
         txt = f"{ok_n} instalados" + (f" · {saltados} ya estaban" if saltados else "")
-        if fallos:
+        if bloqueados:
+            self.ui(fr.set, "warn", txt + f" · {len(bloqueados)} bloqueados por la seguridad de Windows: " + ", ".join(bloqueados) +
+                    " (pide a seguridad que los permita; la huella quedó en la actividad)")
+        elif fallos:
             self.ui(fr.set, "warn", txt + " · revisar a mano: " + ", ".join(fallos))
         else:
             self.ui(fr.set, "ok", txt)

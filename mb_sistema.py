@@ -1251,9 +1251,54 @@ def _ejecutar_comando(cmd, timeout):
         return None
 
 
+BLOQUEO_TXT = "BLOQUEADO por la seguridad de Windows (Defender o directiva de la empresa)"
+_COD_BLOQUEO = {1260, 1625, 225, 226, 0x4EC, 0x659, 0x800704EC, 0x80070659, 0x800700E1, 0x800700E2}
+
+
+def es_bloqueo(rc):
+    """¿El código de salida indica que Windows (Defender / directiva de grupo / AppLocker) impidió la instalación?"""
+    try:
+        v = int(rc)
+    except (TypeError, ValueError):
+        return False
+    return v in _COD_BLOQUEO or (v & 0xFFFFFFFF) in _COD_BLOQUEO
+
+
+def texto_es_bloqueo(t):
+    t = (t or "").lower()
+    return any(x in t for x in ("bloque", "blocked", "directiva", "policy", "0x800704ec", "virus", "access is denied by"))
+
+
+def desbloquear(ruta):
+    """Quita la marca «descargado de internet» (Zone.Identifier) de los archivos que el técnico mismo puso: evita el aviso de
+    SmartScreen. No toca ninguna protección de Windows."""
+    if not IS_WIN or not ruta:
+        return
+    try:
+        if os.path.isdir(ruta):
+            ps("Get-ChildItem -LiteralPath %s -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" % ps_q(ruta), timeout=120)
+        elif os.path.isfile(ruta):
+            ps("Unblock-File -LiteralPath %s -ErrorAction SilentlyContinue" % ps_q(ruta), timeout=30)
+    except Exception:
+        pass
+
+
+def sha256(ruta):
+    import hashlib
+    h = hashlib.sha256()
+    try:
+        with open(ruta, "rb") as f:
+            for b in iter(lambda: f.read(1 << 20), b""):
+                h.update(b)
+        return h.hexdigest()
+    except OSError:
+        return ""
+
+
 def instalar_programa(ruta, log=None, timeout=900):
     """Instala un .msi/.exe en silencio. Devuelve (ok, detalle). Códigos 0 y 3010 (pide reinicio) son éxito."""
     nombre = os.path.basename(ruta)
+    desbloquear(ruta)
     if ruta.lower().endswith(".msi"):
         intentos = [f'msiexec /i "{ruta}" /qn /norestart']
     else:
@@ -1265,6 +1310,10 @@ def instalar_programa(ruta, log=None, timeout=900):
         rc = _ejecutar_comando(cmd, timeout)
         if rc in (0, 3010, 1641):
             return True, "Instalado" + (" (pide reiniciar)" if rc != 0 else "")
+        if es_bloqueo(rc):
+            return False, BLOQUEO_TXT + f" · código {rc}"
+        if not os.path.exists(ruta):
+            return False, "BLOQUEADO: Defender eliminó o puso en cuarentena el instalador"
     return False, "No se pudo en silencio: ábrelo a mano o crea «" + nombre + ".args» con sus parámetros silenciosos"
 
 
@@ -1320,6 +1369,7 @@ def instalar_drivers(carpeta, log=None):
         if not os.path.isfile(inf):
             mal.append(d["driver"])
             continue
+        desbloquear(os.path.join(carpeta, d["carpeta"]))
         rc, out, err = run(["pnputil", "/add-driver", inf, "/install"], timeout=240)
         rc2, out2, _ = ps("try{Add-PrinterDriver -Name %s -ErrorAction Stop;'MB_OK'}catch{"
                           "if($_.Exception.Message -match 'already|ya '){'MB_OK'}else{'MB_ERR|'+$_.Exception.Message}}"
@@ -1331,7 +1381,8 @@ def instalar_drivers(carpeta, log=None):
         else:
             mal.append(d["driver"])
             if log:
-                log(f"Driver «{d['driver']}»: {out2.strip()[:140]}")
+                bloq = es_bloqueo(rc) or texto_es_bloqueo(out2 + (out or "") + (err or ""))
+                log(f"Driver «{d['driver']}»: " + (BLOQUEO_TXT + " · " if bloq else "") + out2.strip()[:140])
     return ok, mal
 
 
@@ -1372,6 +1423,8 @@ def winget_instalar(nombre, log=None):
                        timeout=1500)
     if rc in (0, -1978335189):                       # instalado / ya estaba al día
         return True, ident
+    if es_bloqueo(rc) or texto_es_bloqueo((out or "") + (err or "")):
+        return False, f"{ident}: {BLOQUEO_TXT} · código {rc}"
     return False, f"{ident}: código {rc}"
 
 
