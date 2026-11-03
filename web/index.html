@@ -127,6 +127,9 @@ body.real,body.real html{background:transparent!important}body.real .acrylic{bac
 textarea.inp,select.inp{font:500 14px Inter,system-ui}select.inp option{color:#111}
 .page>.glass{overflow-x:hidden;overflow-y:auto;scrollbar-width:none}.page>.glass::-webkit-scrollbar{display:none}.row .btn{flex:none}
 
+/* ===== alto fijo: el registro de Actividad (o una lista larga) nunca estira la ventana ni empuja los botones fuera ===== */
+.app{grid-template-rows:minmax(0,1fr)}.main,.act,.railw{min-height:0}.act{overflow:hidden}.page{grid-template-rows:minmax(0,1fr)}
+
 /* ===== ajustes de la versión real ===== */
 body.real .rbg{backdrop-filter:none;background:rgba(var(--tint),.5)}
 body:not(.wiz) .mod[data-n="Nuevo servicio"]{display:none}
