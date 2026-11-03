@@ -1394,27 +1394,82 @@ def winget_disponible():
     return bool(IS_WIN and shutil.which("winget"))
 
 
-def _winget_buscar(nombre):
-    rc, out, _ = run(["winget", "search", nombre, "--source", "winget", "--accept-source-agreements",
+# Apps que winget nunca va a instalar: vienen con Windows, las pone el agente corporativo o ya no existen.
+_NO_WINGET = ("copilot", "remove only", "ivanti", "notifications manager", "driver", "controlador")
+# IDs seguros de apps comunes (se usan antes de buscar por nombre)
+_IDS_CONOCIDOS = {"7zip": "7zip.7zip", "adobeacrobat": "Adobe.Acrobat.Reader.64-bit",
+                  "adobeacrobatreader": "Adobe.Acrobat.Reader.64-bit", "adobeacrobatreaderdc": "Adobe.Acrobat.Reader.64-bit",
+                  "googlechrome": "Google.Chrome", "mozillafirefox": "Mozilla.Firefox", "vlcmediaplayer": "VideoLAN.VLC",
+                  "notepad": "Notepad++.Notepad++", "winrar": "RARLab.WinRAR", "zoomworkplace": "Zoom.Zoom", "zoom": "Zoom.Zoom",
+                  "gimp": "GIMP.GIMP", "inkscape": "Inkscape.Inkscape", "anydesk": "AnyDeskSoftwareGmbH.AnyDesk"}
+
+
+def nombre_para_buscar(nombre):
+    """«7-Zip 24.08 (x64 edition)» -> «7-Zip»; «GIMP 2.10.38-1» -> «GIMP»; «Adobe Acrobat (64-bit)» -> «Adobe Acrobat»."""
+    t = re.sub(r"\([^)]*\)", " ", nombre or "")
+    t = re.sub(r"\b(?:x64|x86|amd64|win64|win32|64[- ]?bits?|32[- ]?bits?|edition|versi[oó]n)\b", " ", t, flags=re.I)
+    t = re.sub(r"\bv?\d+(?:[._-]\d+)+[a-z]?\b|\b\d{3,}\b", " ", t, flags=re.I)
+    return re.sub(r"\s+", " ", t).strip(" -–_.,")
+
+
+def _clave(t):
+    return re.sub(r"[^a-z0-9]", "", nombre_para_buscar(t).lower())
+
+
+def _winget_filas(consulta):
+    rc, out, _ = run(["winget", "search", consulta, "--source", "winget", "--accept-source-agreements",
                       "--disable-interactivity"], timeout=90)
-    filas, ini = [], False
-    for ln in (out or "").splitlines():
-        if ln.startswith("---"):
-            ini = True
+    lineas = [ln for ln in (out or "").splitlines() if ln.strip()]
+    filas = []
+    for k, ln in enumerate(lineas):
+        if not ln.lstrip().startswith("---") or k == 0:
             continue
-        if ini and ln.strip():
-            col = re.split(r"\s{2,}", ln.strip())
-            if len(col) >= 2:
-                filas.append((col[0], col[1]))
-    norm = lambda t: re.sub(r"[^a-z0-9]", "", t.lower())
-    for n, i in filas:
-        if norm(n) == norm(nombre) or norm(nombre).startswith(norm(n)) and len(norm(n)) > 4:
-            return i
+        cab = lineas[k - 1]
+        cols = [m.start() for m in re.finditer(r"\S+", cab)]
+        for f in lineas[k + 1:]:
+            if len(cols) >= 2 and len(f) > cols[1]:
+                n, i = f[:cols[1]].strip(), (f[cols[1]:cols[2]] if len(cols) > 2 else f[cols[1]:]).strip().split(" ")[0]
+            else:
+                c = re.split(r"\s{2,}", f.strip())
+                n, i = (c[0], c[1]) if len(c) >= 2 else ("", "")
+            if n and i and "…" not in i:
+                filas.append((n.rstrip("…"), i))
+        break
+    return filas
+
+
+def _winget_buscar(nombre):
+    base = _clave(nombre)
+    if not base:
+        return None
+    if base in _IDS_CONOCIDOS:
+        return _IDS_CONOCIDOS[base]
+    limpio = nombre_para_buscar(nombre)
+    pal = limpio.split()
+    consultas = []
+    for q in (limpio, " ".join(pal[:2]), pal[0] if pal and len(pal[0]) >= 4 else ""):
+        if q and q not in consultas:
+            consultas.append(q)
+    for q in consultas:
+        mejor = None
+        for n, i in _winget_filas(q):
+            c = _clave(n)
+            if not c:
+                continue
+            if c == base:
+                return i
+            if len(c) >= 3 and (c.startswith(base) or base.startswith(c)):
+                if mejor is None or len(c) < mejor[0]:
+                    mejor = (len(c), i)
+        if mejor:
+            return mejor[1]
     return None
 
 
 def winget_instalar(nombre, log=None):
     """Busca por nombre e instala en silencio. Devuelve (ok, detalle)."""
+    if any(x in (nombre or "").lower() for x in _NO_WINGET):
+        return False, "se omite (viene con Windows o la pone el agente corporativo)"
     ident = _winget_buscar(nombre)
     if not ident:
         return False, "no aparece en winget"
