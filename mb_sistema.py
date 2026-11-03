@@ -1423,9 +1423,40 @@ def winget_instalar(nombre, log=None):
                        timeout=1500)
     if rc in (0, -1978335189):                       # instalado / ya estaba al día
         return True, ident
+    # Plan B: winget solo DESCARGA el instalador oficial y lo ejecuta esta app (igual que hacer doble clic a mano).
+    ok2, det2 = _winget_descargar_y_ejecutar(ident, log)
+    if ok2:
+        return True, ident + " (descargado con winget)"
     if es_bloqueo(rc) or texto_es_bloqueo((out or "") + (err or "")):
-        return False, f"{ident}: {BLOQUEO_TXT} · código {rc}"
-    return False, f"{ident}: código {rc}"
+        return False, f"{ident}: {BLOQUEO_TXT} · código {rc} · plan B: {det2}"
+    return False, f"{ident}: código {rc} · plan B: {det2}"
+
+
+def _winget_descargar_y_ejecutar(ident, log=None):
+    import tempfile, shutil
+    base = os.path.join(os.environ.get("ProgramData", tempfile.gettempdir()), "MainbitToolkit", "Descargas")
+    d = os.path.join(base, re.sub(r"[^A-Za-z0-9._-]", "_", ident))
+    try:
+        shutil.rmtree(d, ignore_errors=True)
+        os.makedirs(d, exist_ok=True)
+    except OSError as e:
+        return False, str(e)
+    rc, out, err = run(["winget", "download", "--id", ident, "-e", "--source", "winget", "-d", d,
+                        "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"],
+                       timeout=900)
+    arch = [f for f in os.listdir(d) if f.lower().endswith((".exe", ".msi", ".msix", ".appx", ".msixbundle"))] if os.path.isdir(d) else []
+    if not arch:
+        return False, f"no se pudo descargar (código {rc})"
+    ruta = os.path.join(d, arch[0])
+    if log:
+        log(f"{ident}: instalador descargado, ejecutándolo directamente")
+    if ruta.lower().endswith((".msix", ".appx", ".msixbundle")):
+        rc2, o2, e2 = run(["powershell", "-NoProfile", "-Command", f"Add-AppxPackage -Path {ps_q(ruta)}"], timeout=600)
+        return rc2 == 0, f"código {rc2}"
+    ok, det = instalar_programa(ruta, log=log)
+    if ok:
+        shutil.rmtree(d, ignore_errors=True)
+    return ok, det
 
 
 # ----------------------------------------------------------------------
